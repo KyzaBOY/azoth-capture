@@ -36,17 +36,22 @@ instead of "trust me". Everything below comes from this source; check it.
   `RegisterHotKey`, to drop a marker in your diary. It is not a keylogger: it
   receives only the one key you chose.
 - On **Stop** it writes a `send` folder with the two files we ask for.
+- Outside its own folder it writes: your settings (`%LOCALAPPDATA%\AzothCapture`), exported
+  sessions (`Documents\Azoth Captures`), the window's WebView2 profile (`%APPDATA%\AzothCapture.exe`),
+  pip's download cache, and a one-line `steam_appid.txt` in the game's `Bin64` folder at every launch
+  (the upstream runner does this; the game needs it to start without the launcher).
 
 **What it sends out:** one request, `GET https://projectazoth.com/api/needed`,
-to show which captures the community still needs. No body, no identifiers, no
-telemetry. The upstream scripts it runs (`nw_capture.py`, `_runner.py`,
+to show which captures the community still needs. No body, no cookies, no
+account or machine identifiers, no telemetry; like any web request, the server
+sees your IP address and the app name and version (`azoth-capture/0.2.0`). The upstream scripts it runs (`nw_capture.py`, `_runner.py`,
 `extract_https_pairs.py` and the Frida agents) import no networking code; read
 them at the pinned commit. Your files only leave your PC if *you* post them.
 
 **What it does not do:** write to the registry, install a service or startup
 entry, or upload anything. The code has no such calls; search for them.
 
-**What it downloads** (all into the app's own folder, all from the official hosts):
+**What it downloads** (into the app's own folder, from the official hosts):
 
 | What | From | Integrity |
 |---|---|---|
@@ -55,13 +60,15 @@ entry, or upload anything. The code has no such calls; search for them.
 | Portable Git 2.45.1 | `github.com/git-for-windows/git/releases` | HTTPS, version-pinned |
 | Capture engine: [Aeternum-World](https://github.com/Coldzer0/Aeternum-World) | `github.com/Coldzer0/Aeternum-World` | **pinned to one fixed commit** (`820156d`), so later upstream changes never reach you |
 | Python packages (Frida etc.) | PyPI | exact versions (`==`) from that repo's `requirements.txt` |
+| `setuptools` and `wheel` (build helpers) | PyPI | **latest, not pinned** |
 
 The whole download list is in
 [`internal/capture/embed/install_env.bat`](internal/capture/embed/install_env.bat),
 about 360 lines of plain batch.
 
-**Honest limits.** The Python, pip and Git downloads are version-pinned over
-HTTPS but not hash-checked yet. The exe is not code-signed, so Windows
+**Honest limits.** Python and Git are version-pinned over HTTPS; `get-pip.py` and
+the `setuptools`/`wheel` helpers are not pinned at all; none of the downloads is
+hash-checked yet. The exe is not code-signed, so Windows
 SmartScreen will warn about it and some scanners will give it a heuristic hit.
 Running the game without EAC is against its rules; read the ban note in the
 [tutorial](TUTORIAL.md#the-eac-situation-read-this) and decide for yourself.
@@ -91,7 +98,7 @@ gh attestation verify .\AzothCapture.exe --repo KyzaBOY/azoth-capture
 |---|---|
 | `internal/capture/` | Starts the installer and the capture; patches the hook script |
 | `internal/capture/embed/install_env.bat` | The installer: everything that gets downloaded |
-| `internal/capture/embed/azoth_run.py` | 20-line launcher that points the upstream runner at the patched script |
+| `internal/capture/embed/azoth_run.py` | Small launcher that points the upstream runner at the patched script |
 | `internal/hooks/` | Finds the three game functions we hook, by machine-code signature |
 | `internal/journal/` | The diary (`steps.json`) and its export |
 | `internal/hotkey/` | The F8 hotkey |
@@ -102,7 +109,9 @@ gh attestation verify .\AzothCapture.exe --repo KyzaBOY/azoth-capture
 
 Share only the two files in the `send` folder: `ledger.bin` and `steps.json`.
 `ledger.bin` is the plaintext of your session with the game server (it shows
-what your character did), which is exactly what we need. **Never** share the
+what your character did), which is exactly what we need. In our own captures
+it also carries the game's voice-chat (Vivox) session data, so it is account
+session data: share it only if you are comfortable with that. **Never** share the
 capture folder's `https/`, `logs/`, `keylog.txt` or `summary.json`: they hold
 your account tokens and TLS keys.
 
@@ -115,11 +124,12 @@ by signature and refuses to start if it cannot find all three exactly once**
 
 | Game build | Result |
 |---|---|
-| 1.460.6033.6024067 | hooks located and installed; see the release notes for the live capture result |
+| 1.460.6033.6024067 | hooks located by signature and installed on a suspended game process; a full live capture is being confirmed |
 
 ## Credits and licence
 
 MIT, see [LICENSE](LICENSE). The capture engine is
 [Aeternum-World](https://github.com/Coldzer0/Aeternum-World) by Coldzer0
-(AGPL-3.0), used unmodified; details in [NOTICE.md](NOTICE.md). Report
+(AGPL-3.0), run as-is (the app only points it at a patched copy of one
+script); details in [NOTICE.md](NOTICE.md). Report
 problems as described in [SECURITY.md](SECURITY.md).

@@ -177,6 +177,7 @@ func (r *Runner) InstallEnv() error {
 	r.setStatus(StatusInstalling)
 
 	if err := r.ensureScripts(); err != nil {
+		r.setStatus(StatusError)
 		return err
 	}
 

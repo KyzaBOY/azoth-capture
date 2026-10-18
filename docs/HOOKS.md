@@ -31,7 +31,7 @@ message to explain it.
    `azoth_run.py`, which points the runner at that copy. The upstream checkout
    is never modified.
 
-`SSL_read` and `SSL_write` start with the same 22 bytes; they are told apart by
+`SSL_read` and `SSL_write` start with the same 18 bytes; they are told apart by
 the error-code constants a few instructions later (a unit test guards this).
 
 ## How the signatures were made, and checked

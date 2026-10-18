@@ -1,6 +1,6 @@
 # Azoth Capture — How to Record Game Data
 
-> This is the guide the bot posts in the Discord. Keep it up to date.
+> Keep this guide up to date with the app.
 > Written for people who have never touched packet capture before.
 
 ---
@@ -25,7 +25,7 @@ needed — just press a button.
    [Releases page](https://github.com/KyzaBOY/azoth-capture/releases) — it's a
    single file. Put it in a folder of its own (it creates its helper files
    next to itself). No installer, no admin rights. The release notes list
-   its SHA-256, and the whole source is in this repository; see the
+   its SHA-256 (`SHA256SUMS.txt`), and the whole source is in this repository; see the
    [README](README.md) if you want to check it or build it yourself.
 
 2. **Open it.** On first launch it looks like this: a clock at the top,
@@ -193,12 +193,16 @@ your actions and write short descriptions.
 > They contain your Amazon/Steam account session tokens, Steam tickets,
 > and TLS key material that would let anyone decrypt your traffic.
 
-**Safe to share:**
-- `ledger.bin` — the DTLS packet capture (game protocol data only)
-- `steps.json` / `steps.txt` — your journal (your notes and timestamps)
-- `meta.json` — capture metadata (session info)
+**What we ask you to share (the `send` folder):**
+- `ledger.bin` — the decrypted game-protocol traffic, which is what we need.
+  It shows what your character did, and in our own captures it also carries
+  the game's voice-chat (Vivox) session data. That is session data of your
+  account, so share it only if you are comfortable with that.
+- `steps.json` — your journal (your notes and timestamps)
 
 **NEVER share:**
+- `meta.json` — it contains full paths on your PC, including your Windows
+  user name
 - `https/` folder — contains auth tokens, cookies, session identifiers
   for your Amazon and Steam accounts
 - `keylog.txt` — TLS key material (lets anyone decrypt the raw capture)
@@ -220,11 +224,12 @@ sessions start instantly.
 
 **"This game build is not supported by this version of Azoth Capture"**
 Every game patch moves the code Azoth Capture hooks. The app finds it by
-its machine code instead of by fixed addresses, so most patches just work,
-but if a patch changes those functions the app refuses to start rather than
+its machine code instead of by fixed addresses, so a patch that only shifts
+code just works, but if a patch changes those functions the app refuses to start rather than
 crash your game. Nothing was launched. Get the newest release and, if there
 is none yet, tell us the build number shown in the Activity Log.
-Verified so far: **1.460.6033.6024067**.
+Hooks located and installed on: **1.460.6033.6024067** (a full live capture
+on this build is still being confirmed).
 
 **Game doesn't launch**
 Make sure the path points to `NewWorld.exe` inside `Bin64\`, not a
@@ -261,7 +266,7 @@ AzothCapture/
 │       ├── dtls/
 │       │   ├── ledger.bin      ← THE main file (DTLS game packets)
 │       │   ├── keylog.txt      ← DO NOT SHARE (TLS keys)
-│       │   └── meta.json       ← session metadata (safe)
+│       │   └── meta.json       ← DO NOT SHARE (has local paths)
 │       ├── tokenservice/       ← DO NOT SHARE
 │       ├── gateway_cf/         ← DO NOT SHARE
 │       ├── (other HTTPS dirs)  ← DO NOT SHARE
@@ -276,8 +281,8 @@ Documents/Azoth Captures/
     └── steps.txt           ← human-readable version
 ```
 
-**What to post in `#file-sharing`:** `ledger.bin` + `steps.json`.
-Or use **Zip Logs** and share the zip (verify it only has `dtls/`).
+**What to post:** the two files in the `send` folder, `ledger.bin` +
+`steps.json`, and nothing else.
 
 ---
 
@@ -291,8 +296,8 @@ Every capture you record today is permanent. The server goes away, but
 the data you recorded lives on and lets us rebuild it. Even a 5-minute
 fishing session with journal annotations is more valuable than nothing.
 
-**The entire CAPTURES_TODO list is still unchecked.** 30+ game systems,
-zero marked done. Any action you record is a first.
+The **Missions** panel shows what is still missing. Any action it lists
+that you record is a first.
 
 ---
 
@@ -304,5 +309,5 @@ zero marked done. Any action you record is a first.
 - **Azoth Capture:** rebuilt from scratch for the Azoth preservation project
   (Go + Wails, journal integration, auto-setup)
 
-No telemetry. No accounts. No data leaves your machine except what you
-choose to post.
+No telemetry. No accounts. Apart from one plain request for the Missions
+list, nothing leaves your machine except what you choose to post.

@@ -31,6 +31,11 @@ def main() -> int:
     sys.path.insert(0, str(nw_dir))
     import _runner  # upstream module; reads DTLS_LEDGER_JS at spawn time
 
+    # If upstream ever renames this, the override would silently do nothing and
+    # the old hardcoded addresses would run. Refuse instead.
+    if not hasattr(_runner, "DTLS_LEDGER_JS"):
+        print("-- azoth: upstream _runner.py has no DTLS_LEDGER_JS; refusing to run unpatched hooks")
+        return 2
     _runner.DTLS_LEDGER_JS = patched
     print(f"-- azoth: hook script = {patched}")
 

@@ -16,9 +16,10 @@ if "%ROOT:~-1%"=="\" set "ROOT=%ROOT:~0,-1%"
 
 set "CONFIG_FILE=%ROOT%\config.json"
 set "NW_CAPTURE_REPO=https://github.com/Coldzer0/Aeternum-World.git"
-:: Pinned upstream commit. The installer checks out exactly this commit, so a
-:: later change to the upstream repository can never reach a user machine.
-:: To use another one, set "RepoCommit" in config.json ("latest" = follow upstream).
+:: Pinned upstream commit. The installer checks out exactly this commit and never
+:: pulls, so a later change to the upstream repository cannot reach a user machine.
+:: To use another one, set "RepoCommit" in config.json to a full commit SHA.
+:: (The checkout is forced: local edits to the upstream files are discarded.)
 set "NW_CAPTURE_COMMIT=820156dbc44c86c9436af81aa0dba72e94cb636b"
 
 if exist "%CONFIG_FILE%" (
@@ -29,7 +30,6 @@ if exist "%CONFIG_FILE%" (
         if not "%%a"=="" set "NW_CAPTURE_COMMIT=%%a"
     )
 )
-if /I "%NW_CAPTURE_COMMIT%"=="latest" set "NW_CAPTURE_COMMIT="
 
 set "EMBEDDED_DIR=%ROOT%\python_embedded"
 set "CONTAINED_GIT_DIR=%EMBEDDED_DIR%\git"
@@ -203,47 +203,11 @@ if exist "%CAPTURE_DIR%\Tools\nw_capture\nw_capture.py" (
     )
 
     pushd "%CAPTURE_DIR%"
-    if defined NW_CAPTURE_COMMIT (
-        call :EnsurePinned
-        if errorlevel 1 (
-            popd
-            if not defined APP_LAUNCHED pause
-            exit /b 1
-        )
-        popd
-        goto :RequirementsSection
-    )
-    "%GIT_EXE%" fetch origin
-    if errorlevel 1 (
-        echo Failed to check for updates. Continuing with current version.
-        popd
-        goto :RequirementsSection
-    )
-
-    set "LOCAL_HEAD="
-    set "REMOTE_HEAD="
-    for /F "usebackq tokens=*" %%h in (`""%GIT_EXE%" rev-parse HEAD"`) do set "LOCAL_HEAD=%%h"
-    "%GIT_EXE%" rev-parse "@{u}" >nul 2>&1
+    call :EnsurePinned
     if errorlevel 1 (
         popd
-        goto :RequirementsSection
-    )
-    for /F "usebackq tokens=*" %%h in (`""%GIT_EXE%" rev-parse "@{u}""`) do set "REMOTE_HEAD=%%h"
-
-    if not defined LOCAL_HEAD ( popd & goto :RequirementsSection )
-    if not defined REMOTE_HEAD ( popd & goto :RequirementsSection )
-
-    if /I not "%LOCAL_HEAD%"=="%REMOTE_HEAD%" (
-        echo Update found. Pulling latest changes...
-        "%GIT_EXE%" pull --ff-only
-        if errorlevel 1 (
-            "%GIT_EXE%" stash push -m "nw_capture_auto_stash" -u
-            "%GIT_EXE%" pull --ff-only
-            "%GIT_EXE%" stash pop >nul 2>&1
-        )
-        echo Repository updated successfully.
-    ) else (
-        echo Repository is already up to date.
+        if not defined APP_LAUNCHED pause
+        exit /b 1
     )
     popd
     goto :RequirementsSection
@@ -270,16 +234,14 @@ if not exist "%CAPTURE_DIR%" (
     )
 )
 
-if defined NW_CAPTURE_COMMIT (
-    pushd "%CAPTURE_DIR%"
-    call :EnsurePinned
-    if errorlevel 1 (
-        popd
-        if not defined APP_LAUNCHED pause
-        exit /b 1
-    )
+pushd "%CAPTURE_DIR%"
+call :EnsurePinned
+if errorlevel 1 (
     popd
+    if not defined APP_LAUNCHED pause
+    exit /b 1
 )
+popd
 
 if not exist "%CAPTURE_DIR%\.git\info\exclude" (
     mkdir "%CAPTURE_DIR%\.git\info" 2>nul
