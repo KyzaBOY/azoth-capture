@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Azoth Capture</title>
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <main class="win" id="win">
+
+    <header class="tb">
+      <div class="ramp d50"></div>
+      <div class="ico" aria-hidden="true">
+        <svg class="px" width="14" height="14" viewBox="0 0 7 7" shape-rendering="crispEdges" fill="currentColor"><path d="M2 0h3v1H2zM1 1h1v1H1zM5 1h1v1H5zM0 2h1v3H0zM6 2h1v3H6zM3 2h1v2H3zM4 3h1v1H4zM1 5h1v1H1zM5 5h1v1H5zM2 6h3v1H2z"/></svg>
+      </div>
+      <h1 class="ttl">Azoth Capture <span class="sub">&middot; v<span id="ver">0.1.0</span></span></h1>
+      <div class="ctl">
+        <button id="btn-top" type="button" aria-pressed="false" title="Keep window above the game">Top</button>
+        <span class="gap"></span>
+        <button id="btn-min" type="button" aria-label="Minimise"><span class="g-min"></span></button>
+        <button id="btn-close" type="button" aria-label="Close"><span class="g-x"></span></button>
+      </div>
+    </header>
+
+    <section class="body" id="body">
+
+      <!-- draft recovery -->
+      <div class="banner" id="recover" hidden>
+        <p id="recover-text"></p>
+        <button class="btn small" id="btn-recover" type="button">Recover</button>
+        <button class="btn small" id="btn-discard" type="button">Discard</button>
+      </div>
+
+      <!-- clock -->
+      <div class="clockpanel">
+        <div class="dith d50"></div>
+        <div class="clock" id="clock">00:00:00<span class="ms">.000</span></div>
+        <div class="clockrow">
+          <span>Elapsed <b id="elapsed">--:--:--.---</b></span>
+          <span id="phase">Not recording</span>
+        </div>
+        <div class="clocknote">PC clock &mdash; same clock your capture tool uses</div>
+      </div>
+
+      <!-- mark -->
+      <div class="markrow">
+        <button class="btn primary big" id="btn-mark" type="button" disabled>Mark</button>
+        <div class="keyhint">Hotkey <span class="kbd" id="hk-label">F8</span><br>works while the game has focus</div>
+      </div>
+
+      <!-- session setup -->
+      <section class="panel" id="setup">
+        <h2>Session</h2>
+
+        <div class="row">
+          <label class="field" style="flex:3 1 250px"><span>Game executable</span>
+            <div class="input-row">
+              <input type="text" id="cap-exe" spellcheck="false" autocomplete="off" placeholder="C:\SteamLibrary\...\NewWorld.exe">
+              <button class="btn small" id="btn-browse-exe" type="button">Browse</button>
+            </div>
+          </label>
+        </div>
+
+        <div class="row" style="margin-top:10px">
+          <label class="field"><span>Session name</span><input type="text" id="in-name" maxlength="60" spellcheck="false" autocomplete="off"></label>
+          <label class="field"><span>Activity</span><select id="in-activity"></select></label>
+        </div>
+
+        <div class="row" style="margin-top:10px">
+          <label class="field" style="flex:0 0 90px"><span>Timeout</span><input type="number" id="cap-timeout" value="600" min="10" max="7200"></label>
+          <label class="field check-field" style="flex:0 0 auto;align-self:flex-end"><input type="checkbox" id="cap-oneperep"><span>One per endpoint</span></label>
+          <span class="grow"></span>
+          <button class="btn primary" id="btn-start" type="button">Start Session</button>
+          <button class="btn" id="btn-stop" type="button" hidden>Stop Session</button>
+        </div>
+
+        <p class="err-line" id="session-err" hidden></p>
+      </section>
+
+      <!-- session done -->
+      <section class="panel done" id="done" hidden>
+        <h2>Session saved</h2>
+        <p class="where" id="done-where"></p>
+        <p class="err-line" id="size-warn" hidden></p>
+        <p class="err-line" id="done-err" hidden></p>
+        <div class="btns">
+          <button class="btn primary" id="btn-send" type="button">Open files to send</button>
+          <button class="btn small" id="btn-open" type="button">Full export</button>
+          <button class="btn small" id="btn-export2" type="button">Export again</button>
+          <button class="btn small" id="btn-browse-cap" type="button">Captures folder</button>
+          <button class="btn small primary" id="btn-new" type="button">New session</button>
+        </div>
+        <p class="rule">Drag <strong>ledger.bin</strong> and <strong>steps.json</strong> from the send folder to your Discord ticket. <strong>Never share the HTTPS folders, logs or keylog.txt</strong> &mdash; they contain your account tokens.</p>
+      </section>
+
+      <div class="cols">
+        <!-- left: steps + log -->
+        <div class="col">
+          <section class="panel" id="stepspanel">
+            <h2>Steps <small id="steps-count"></small><span class="grow"></span>
+              <button class="btn small" id="btn-export" type="button" disabled>Export</button>
+              <button class="btn small" id="btn-folder" type="button">Open folder</button>
+            </h2>
+            <div class="steps" id="steps" role="list"></div>
+            <p class="legend"><i>&bull;</i> = marked with the hotkey. Click a text to rename it; the time stays fixed.</p>
+          </section>
+
+          <!-- activity log -->
+          <section class="panel" id="log-panel">
+            <h2>Activity Log <span class="grow"></span>
+              <button class="btn small" id="btn-log-copy" type="button">Copy</button>
+              <button class="btn small" id="btn-log-clear" type="button">Clear</button>
+            </h2>
+            <div class="logbox" id="logbox"><div class="empty">Capture output appears here once you start a session.</div></div>
+          </section>
+        </div>
+
+        <!-- right: missions + settings -->
+        <div class="col">
+          <section class="panel" id="missions">
+            <h2>Missions <small>optional</small></h2>
+            <div class="row">
+              <label class="field"><span>Activity</span><select id="m-activity" disabled></select></label>
+              <button class="btn small" id="btn-load" type="button">Load list</button>
+            </div>
+            <p class="mstatus" id="m-status">Loads the packets the community still needs, with a how-to for each one.</p>
+            <div class="pklist" id="pklist" hidden></div>
+            <div class="cards" id="cards"></div>
+          </section>
+
+          <section class="panel" id="settings">
+            <h2>Settings</h2>
+            <div class="kv">
+              <label>Hotkey</label>
+              <div class="val" id="s-hotkey">F8</div>
+              <button class="btn small" id="btn-hk" type="button">Change</button>
+              <label>Folder</label>
+              <div class="val" id="s-dir" title=""></div>
+              <button class="btn small" id="btn-dir" type="button">Browse</button>
+              <div class="err" id="s-err" hidden></div>
+            </div>
+            <div class="retry-row" id="retry-row" hidden>
+              <button class="btn small" id="btn-retry" type="button">Retry environment setup</button>
+            </div>
+          </section>
+        </div>
+      </div>
+    </section>
+
+    <footer class="sb">
+      <div class="cell" id="sb-hk"></div>
+      <div class="cell" id="sb-cap">Capture: idle</div>
+      <div class="cell" id="sb-draft">No draft yet</div>
+      <div class="cell grow" id="sb-note">No telemetry. Uses Aeternum-World by Coldzer0.</div>
+    </footer>
+  </main>
+
+  <script src="js/bridge.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
