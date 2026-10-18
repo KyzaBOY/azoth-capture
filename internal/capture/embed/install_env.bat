@@ -16,12 +16,20 @@ if "%ROOT:~-1%"=="\" set "ROOT=%ROOT:~0,-1%"
 
 set "CONFIG_FILE=%ROOT%\config.json"
 set "NW_CAPTURE_REPO=https://github.com/Coldzer0/Aeternum-World.git"
+:: Pinned upstream commit. The installer checks out exactly this commit, so a
+:: later change to the upstream repository can never reach a user machine.
+:: To use another one, set "RepoCommit" in config.json ("latest" = follow upstream).
+set "NW_CAPTURE_COMMIT=820156dbc44c86c9436af81aa0dba72e94cb636b"
 
 if exist "%CONFIG_FILE%" (
     for /F "usebackq tokens=*" %%a in (`powershell -NoProfile -Command "try { (Get-Content '%CONFIG_FILE%' -Raw | ConvertFrom-Json).RepoUrl } catch { '' }"`) do (
         if not "%%a"=="" set "NW_CAPTURE_REPO=%%a"
     )
+    for /F "usebackq tokens=*" %%a in (`powershell -NoProfile -Command "try { (Get-Content '%CONFIG_FILE%' -Raw | ConvertFrom-Json).RepoCommit } catch { '' }"`) do (
+        if not "%%a"=="" set "NW_CAPTURE_COMMIT=%%a"
+    )
 )
+if /I "%NW_CAPTURE_COMMIT%"=="latest" set "NW_CAPTURE_COMMIT="
 
 set "EMBEDDED_DIR=%ROOT%\python_embedded"
 set "CONTAINED_GIT_DIR=%EMBEDDED_DIR%\git"
@@ -195,6 +203,16 @@ if exist "%CAPTURE_DIR%\Tools\nw_capture\nw_capture.py" (
     )
 
     pushd "%CAPTURE_DIR%"
+    if defined NW_CAPTURE_COMMIT (
+        call :EnsurePinned
+        if errorlevel 1 (
+            popd
+            if not defined APP_LAUNCHED pause
+            exit /b 1
+        )
+        popd
+        goto :RequirementsSection
+    )
     "%GIT_EXE%" fetch origin
     if errorlevel 1 (
         echo Failed to check for updates. Continuing with current version.
@@ -250,6 +268,17 @@ if not exist "%CAPTURE_DIR%" (
         if not defined APP_LAUNCHED pause
         exit /b 1
     )
+)
+
+if defined NW_CAPTURE_COMMIT (
+    pushd "%CAPTURE_DIR%"
+    call :EnsurePinned
+    if errorlevel 1 (
+        popd
+        if not defined APP_LAUNCHED pause
+        exit /b 1
+    )
+    popd
 )
 
 if not exist "%CAPTURE_DIR%\.git\info\exclude" (
@@ -317,4 +346,21 @@ if not defined APP_LAUNCHED (
     pause
 )
 
+exit /b 0
+
+:: Put the working tree (current directory) on NW_CAPTURE_COMMIT.
+:EnsurePinned
+set "CUR_HEAD="
+for /F "usebackq tokens=*" %%h in (`""%GIT_EXE%" rev-parse HEAD"`) do set "CUR_HEAD=%%h"
+if /I "%CUR_HEAD%"=="%NW_CAPTURE_COMMIT%" (
+    echo Capture tools are at the pinned commit.
+    exit /b 0
+)
+echo Moving the capture tools to the pinned commit %NW_CAPTURE_COMMIT:~0,10%...
+"%GIT_EXE%" fetch origin
+"%GIT_EXE%" checkout --quiet --force --detach %NW_CAPTURE_COMMIT%
+if errorlevel 1 (
+    echo Failed to check out the pinned commit %NW_CAPTURE_COMMIT%.
+    exit /b 1
+)
 exit /b 0
