@@ -16,8 +16,9 @@ crashes the game or records garbage.
   and `meta.json` are safe to share as they were (see "What NOT to share"), and
   no longer mentions a Zip button the app does not have.
 
-**Status on 1.460.6033.6024067:** hooks are located and install correctly on a
-suspended game process. A full live capture on this build is being confirmed.
+**Status on 1.460.6033.6024067:** works. A live 2-minute session was captured and
+decoded with the upstream `decode_dtls_ledger.py`: 6,666 records in both
+directions, no decode errors, no agent errors.
 
 Check the download against the `SHA256SUMS.txt` release asset, or with
 `gh attestation verify AzothCapture.exe --repo KyzaBOY/azoth-capture`.

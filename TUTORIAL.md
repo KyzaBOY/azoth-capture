@@ -228,8 +228,7 @@ its machine code instead of by fixed addresses, so a patch that only shifts
 code just works, but if a patch changes those functions the app refuses to start rather than
 crash your game. Nothing was launched. Get the newest release and, if there
 is none yet, tell us the build number shown in the Activity Log.
-Hooks located and installed on: **1.460.6033.6024067** (a full live capture
-on this build is still being confirmed).
+Tested with a live capture on: **1.460.6033.6024067**.
 
 **Game doesn't launch**
 Make sure the path points to `NewWorld.exe` inside `Bin64\`, not a
