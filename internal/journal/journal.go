@@ -21,7 +21,7 @@ import (
 // Versão do app, gravada no steps.json ("azoth-capture 0.1.0").
 const (
 	AppName = "azoth-capture"
-	Version = "0.1.0"
+	Version = "0.2.0"
 )
 
 // Quem gerou o passo.

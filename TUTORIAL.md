@@ -21,9 +21,12 @@ needed — just press a button.
 
 ## Quick start (under 2 minutes to learn)
 
-1. **Download** `AzothCapture.exe` — it's a single file, ~12 MB. Put it
-   anywhere you want (Desktop, a folder, doesn't matter). No installer,
-   no admin rights.
+1. **Download** `AzothCapture.exe` from the
+   [Releases page](https://github.com/KyzaBOY/azoth-capture/releases) — it's a
+   single file. Put it in a folder of its own (it creates its helper files
+   next to itself). No installer, no admin rights. The release notes list
+   its SHA-256, and the whole source is in this repository; see the
+   [README](README.md) if you want to check it or build it yourself.
 
 2. **Open it.** On first launch it looks like this: a clock at the top,
    a Session panel below, and an activity log at the bottom.
@@ -54,12 +57,12 @@ needed — just press a button.
 7. **When you're done**, Alt+F4 the game and click **Stop Session** in the
    app. It saves everything automatically.
 
-8. **Post your capture.** In the Discord's `#file-sharing` channel, drop:
+8. **Post your capture.** When you stop, the app builds a `send` folder
+   containing only the two files we need — drop them where the Azoth
+   Discord tells you to:
    - `ledger.bin` (the main capture file)
    - `steps.json` (your journal — this tells us what you did and when)
    - A short message saying what activity you focused on
-
-   You can also use **Zip Logs** to bundle everything into one `.zip`.
 
 ---
 
@@ -70,11 +73,13 @@ the normal launcher chain** (Steam → EAC → Game). This means Easy
 Anti-Cheat never loads. It's the only way to intercept the network data.
 Here's what you need to know:
 
-- **You will NOT get banned.** Nobody in the preservation community has
-  been banned for this. The game connects to the official server normally,
-  it's just running without EAC alongside it. Multiple communities
-  (Aeternum-World, first-light, NewWorldPreservation) have been doing
-  this routinely.
+- **Ban risk: none reported to us, but we can't promise.** Running the game
+  without EAC is against the game's rules in principle. We have not heard of
+  anyone being banned for it: the game connects to the official server
+  normally, it just runs without EAC alongside it, and other communities
+  (Aeternum-World, first-light, NewWorldPreservation) have been doing this
+  routinely. Amazon could still act on it; if that worries you, use an
+  account you can afford to lose. You are the one deciding to run it.
 - **You WILL get disconnected every 2–3 minutes.** The server notices EAC
   isn't responding and kicks you. This is normal and expected — it's not
   a ban, just a timeout.
@@ -118,8 +123,9 @@ before it kills the game process automatically.
 ## What we need (and how you help)
 
 Check the **Missions** panel in the app (right side) — it loads the
-community's current needs from [the completeness tracker](https://ow.ratbuddy.com/completeness/).
-Packets marked **wanted** are the ones nobody has captured yet.
+community's current needs from `projectazoth.com` (one plain GET request, no
+data about you is sent). Packets marked **wanted** are the ones nobody has
+captured yet.
 
 ### Priority list (most needed first)
 
@@ -199,8 +205,8 @@ your actions and write short descriptions.
 - `logs/` folder — raw JSONL event stream with headers and credentials
 - `summary.json` — contains your local file paths
 
-The **Zip Logs** button creates a `.zip` of the capture folder. Before
-sharing a zip, make sure it only includes the `dtls/` subfolder.
+The app's `send` folder holds only `ledger.bin` and `steps.json`. Share
+those, nothing else from the capture folder.
 
 ---
 
@@ -211,6 +217,14 @@ The first-time install downloads ~200 MB (Python, Git, the capture repo,
 and Python packages like Frida). On a slow connection this can take 5–10
 minutes. Check the Activity Log for progress. Once installed, future
 sessions start instantly.
+
+**"This game build is not supported by this version of Azoth Capture"**
+Every game patch moves the code Azoth Capture hooks. The app finds it by
+its machine code instead of by fixed addresses, so most patches just work,
+but if a patch changes those functions the app refuses to start rather than
+crash your game. Nothing was launched. Get the newest release and, if there
+is none yet, tell us the build number shown in the Activity Log.
+Verified so far: **1.460.6033.6024067**.
 
 **Game doesn't launch**
 Make sure the path points to `NewWorld.exe` inside `Bin64\`, not a

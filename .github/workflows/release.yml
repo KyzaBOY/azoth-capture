@@ -1,0 +1,68 @@
+name: release
+
+# Builds the exe from the tagged commit and publishes it with its SHA-256 and a
+# signed build-provenance attestation, so a downloaded exe can be tied back to
+# this source (see README "Check it yourself").
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version-file: go.mod
+
+      - name: Vet and test
+        shell: pwsh
+        run: |
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          go test ./...
+
+      - name: Install Wails
+        shell: pwsh
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.13.0
+
+      - name: Build
+        shell: pwsh
+        run: wails build -clean -platform windows/amd64 -trimpath
+
+      - name: Checksums
+        shell: pwsh
+        run: |
+          $h = (Get-FileHash build\bin\AzothCapture.exe -Algorithm SHA256).Hash.ToLower()
+          "$h  AzothCapture.exe" | Set-Content build\bin\SHA256SUMS.txt -Encoding ascii
+          Get-Content build\bin\SHA256SUMS.txt
+
+      - uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-path: build/bin/AzothCapture.exe
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: AzothCapture
+          path: |
+            build/bin/AzothCapture.exe
+            build/bin/SHA256SUMS.txt
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" `
+            build/bin/AzothCapture.exe build/bin/SHA256SUMS.txt `
+            --title "Azoth Capture ${{ github.ref_name }}" `
+            --notes-file RELEASE_NOTES.md
