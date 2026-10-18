@@ -2,6 +2,7 @@ package capture
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	_ "embed"
 	"fmt"
@@ -11,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"azoth/capture/internal/hooks"
 )
 
 //go:embed embed/install_env.bat
@@ -18,6 +21,9 @@ var installScript []byte
 
 //go:embed embed/config.json
 var configJSON []byte
+
+//go:embed embed/azoth_run.py
+var runShim []byte
 
 type Status string
 
@@ -73,8 +79,58 @@ func (r *Runner) pythonExe() string {
 	return filepath.Join(r.rootDir, "python_embedded", "python.exe")
 }
 
+func (r *Runner) captureDir() string {
+	return filepath.Join(r.rootDir, "Aeternum-World", "Tools", "nw_capture")
+}
+
 func (r *Runner) captureScript() string {
-	return filepath.Join(r.rootDir, "Aeternum-World", "Tools", "nw_capture", "nw_capture.py")
+	return filepath.Join(r.captureDir(), "nw_capture.py")
+}
+
+// azothDir holds what this app generates at launch (the patched hook script
+// and the launcher shim), kept apart from the untouched upstream checkout.
+func (r *Runner) azothDir() string { return filepath.Join(r.rootDir, "azoth") }
+
+// prepareHooks works out where the hooks go for THIS game build and writes the
+// patched hook script plus the shim that makes the upstream runner use it.
+// It fails, before anything is launched, if the build is not one we can hook
+// with certainty.
+func (r *Runner) prepareHooks(exePath string) (shim, patched string, err error) {
+	build, ierr := hooks.Identify(exePath)
+	if ierr != nil {
+		return "", "", fmt.Errorf("cannot read the game executable: %w", ierr)
+	}
+	r.log(fmt.Sprintf("Game build %s (sha256 %s)", build.Version, build.SHA256))
+
+	addrs, err := hooks.Find(exePath)
+	if err != nil {
+		return "", "", fmt.Errorf("this game build (%s) is not supported by this version of Azoth Capture, "+
+			"so nothing was launched: %v. Look for an updated Azoth Capture", build.Version, err)
+	}
+	r.log(fmt.Sprintf("Hooks located by signature: SSL_read 0x%X, SSL_write 0x%X, nss_keylog 0x%X",
+		addrs.SSLRead, addrs.SSLWrite, addrs.Keylog))
+
+	src, err := os.ReadFile(filepath.Join(r.captureDir(), "_dtls_ledger.js"))
+	if err != nil {
+		return "", "", fmt.Errorf("capture tools are incomplete, run Install again: %w", err)
+	}
+	out, err := patchLedgerJS(string(src), addrs)
+	if err != nil {
+		return "", "", err
+	}
+
+	if err := os.MkdirAll(r.azothDir(), 0o755); err != nil {
+		return "", "", err
+	}
+	patched = filepath.Join(r.azothDir(), "_dtls_ledger.js")
+	shim = filepath.Join(r.azothDir(), "azoth_run.py")
+	if err := os.WriteFile(patched, []byte(out), 0o644); err != nil {
+		return "", "", err
+	}
+	if err := os.WriteFile(shim, runShim, 0o644); err != nil {
+		return "", "", err
+	}
+	return shim, patched, nil
 }
 
 func (r *Runner) capturesDir(session string) string {
@@ -92,8 +148,11 @@ func (r *Runner) IsEnvInstalled() bool {
 }
 
 func (r *Runner) ensureScripts() error {
+	// The installer is code, not user settings: always refresh it from the
+	// embedded copy so fixes (like the pinned upstream commit) reach installs
+	// made by an older version. config.json is the user's, written only once.
 	batPath := filepath.Join(r.rootDir, "install_env.bat")
-	if _, err := os.Stat(batPath); err != nil {
+	if cur, err := os.ReadFile(batPath); err != nil || !bytes.Equal(cur, installScript) {
 		if err := os.WriteFile(batPath, installScript, 0o644); err != nil {
 			return fmt.Errorf("failed to extract install script: %w", err)
 		}
@@ -183,8 +242,13 @@ func (r *Runner) StartCapture(exePath, session string, timeout int, onePerEP boo
 		session = "my_session"
 	}
 
+	shim, patched, err := r.prepareHooks(exePath)
+	if err != nil {
+		return err
+	}
+
 	args := []string{
-		r.captureScript(),
+		shim, r.captureDir(), patched,
 		"--target", exePath,
 		"--session", session,
 		"--timeout", fmt.Sprint(timeout),
