@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// StepsFile é o steps.json (CONTRATOS.md §9). A ordem dos campos é a do contrato.
+// StepsFile is steps.json (CONTRATOS.md section 9). The field order is the contract's.
 type StepsFile struct {
 	Schema      int          `json:"schema"`
 	App         string       `json:"app"`
@@ -22,7 +22,7 @@ type StepsFile struct {
 	Steps       []StepsEntry `json:"steps"`
 }
 
-// StepsEntry é um passo no steps.json (sem o ID interno).
+// StepsEntry is one step in steps.json (without the internal ID).
 type StepsEntry struct {
 	TMs    int64  `json:"t_ms"`
 	Text   string `json:"text"`
@@ -30,9 +30,9 @@ type StepsEntry struct {
 	Via    string `json:"via"`
 }
 
-// BuildStepsFile monta o steps.json de uma sessão. Se ela ainda roda, o
-// stopped_ms é `now` (export parcial). tz_offset_min é o fuso do PC na hora do
-// início, em minutos a leste de UTC (UTC-3 = -180, como no exemplo do contrato).
+// BuildStepsFile builds the steps.json of a session. If it is still running,
+// stopped_ms is `now` (a partial export). tz_offset_min is the PC's time zone at
+// the start, in minutes east of UTC (UTC-3 = -180, as in the contract's example).
 func BuildStepsFile(s Session, now time.Time, loc *time.Location) StepsFile {
 	stopped := s.StoppedMs
 	if s.Phase == PhaseRunning || stopped == 0 {
@@ -58,13 +58,13 @@ func BuildStepsFile(s Session, now time.Time, loc *time.Location) StepsFile {
 	return f
 }
 
-// FormatClock formata um instante como HH:MM:SS.mmm no fuso dado.
+// FormatClock formats a moment as HH:MM:SS.mmm in the given time zone.
 func FormatClock(ms int64, loc *time.Location) string {
 	return time.UnixMilli(ms).In(loc).Format("15:04:05.000")
 }
 
-// FormatRel formata uma duração como +MM:SS.mmm (ou +H:MM:SS.mmm a partir de 1 h).
-// Negativo (relógio andou pra trás) sai com "-".
+// FormatRel formats a duration as +MM:SS.mmm (or +H:MM:SS.mmm from 1 h on).
+// A negative one (the clock went backwards) comes out with "-".
 func FormatRel(ms int64) string {
 	sign := "+"
 	if ms < 0 {
@@ -77,7 +77,7 @@ func FormatRel(ms int64) string {
 	return fmt.Sprintf("%s%02d:%02d.%03d", sign, m, s, mm)
 }
 
-// BuildStepsText monta o steps.txt legível (uma linha por passo).
+// BuildStepsText builds the readable steps.txt (one line per step).
 func BuildStepsText(s Session, now time.Time, loc *time.Location) string {
 	f := BuildStepsFile(s, now, loc)
 	var b strings.Builder
@@ -122,14 +122,14 @@ func tzLabel(offMin int) string {
 
 var badNameChars = regexp.MustCompile(`[\\/:*?"<>|\x00-\x1f]`)
 
-// FolderName torna o nome da sessão um nome de pasta válido no Windows.
+// FolderName turns the session name into a folder name that is valid on Windows (and so on Linux too).
 func FolderName(name string) string {
 	n := strings.TrimSpace(badNameChars.ReplaceAllString(name, "-"))
 	n = strings.TrimRight(n, ". ")
 	if n == "" {
 		return "session"
 	}
-	switch strings.ToUpper(strings.SplitN(n, ".", 2)[0]) { // nomes reservados do Windows
+	switch strings.ToUpper(strings.SplitN(n, ".", 2)[0]) { // names Windows reserves
 	case "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
 		"LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9":
 		n = "_" + n
@@ -139,7 +139,7 @@ func FolderName(name string) string {
 
 var slugRe = regexp.MustCompile(`[^a-z0-9]+`)
 
-// SuggestName devolve "<atividade>-NN" com o primeiro NN livre em outDir.
+// SuggestName returns "<activity>-NN" with the first free NN in outDir.
 func SuggestName(outDir, activity string) string {
 	slug := strings.Trim(slugRe.ReplaceAllString(strings.ToLower(activity), "-"), "-")
 	if slug == "" {
@@ -154,8 +154,13 @@ func SuggestName(outDir, activity string) string {
 	return slug + "-1000"
 }
 
-// Export grava steps.json e steps.txt em <outDir>\<sessão>\ e devolve a pasta.
-// Sessão parada e exportada vira "exportada" no rascunho (não é mais oferecida).
+// SessionDir is the folder a session's files go into: <outDir>/<session>/.
+func SessionDir(outDir, name string) string {
+	return filepath.Join(outDir, FolderName(name))
+}
+
+// Export writes steps.json and steps.txt into <outDir>/<session>/ and returns that folder.
+// A stopped, exported session is marked "exported" in the draft (it is not offered again).
 func (j *Journal) Export(outDir string) (string, error) {
 	j.mu.Lock()
 	if j.s.Phase == PhaseIdle {
@@ -166,7 +171,7 @@ func (j *Journal) Export(outDir string) (string, error) {
 	j.mu.Unlock()
 
 	now := j.now()
-	dir := filepath.Join(outDir, FolderName(s.Name))
+	dir := SessionDir(outDir, s.Name)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}

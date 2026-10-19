@@ -1,13 +1,11 @@
 package capture
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	_ "embed"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -16,14 +14,22 @@ import (
 	"azoth/capture/internal/hooks"
 )
 
-//go:embed embed/install_env.bat
-var installScript []byte
-
 //go:embed embed/config.json
 var configJSON []byte
 
-//go:embed embed/azoth_run.py
-var runShim []byte
+// Platform files (capture_windows.go / capture_linux.go) provide these: the
+// installer script and its name, the capture shim and its name, and the
+// functions that differ between Windows (spawn the game) and Linux (attach to
+// the running game under Proton).
+//
+//   installScript   embedded installer bytes
+//   installerName   file name the installer is written out as
+//   runShim         embedded capture shim bytes
+//   shimName        file name the shim is written out as
+//   (*Runner) pythonExe() string
+//   (*Runner) runInstaller() error
+//   (*Runner) startEngine(ctx, exePath, session, timeout, onePerEP, setup)
+//   (*Runner) openInFileManager(dir) error
 
 type Status string
 
@@ -36,11 +42,17 @@ const (
 	StatusError      Status = "error"
 )
 
+// stopWait bounds how long StopCapture waits for the capture process to
+// finish. It covers the Linux helper's own grace period (flush, detach, stop
+// the Frida server) with room to spare.
+const stopWait = 30 * time.Second
+
 type Runner struct {
 	mu       sync.Mutex
 	rootDir  string
 	status   Status
 	cancel   context.CancelFunc
+	finished chan struct{} // closed when the running capture has fully ended
 	onLog    func(string)
 	onStatus func(Status)
 }
@@ -75,10 +87,6 @@ func (r *Runner) log(msg string) {
 	}
 }
 
-func (r *Runner) pythonExe() string {
-	return filepath.Join(r.rootDir, "python_embedded", "python.exe")
-}
-
 func (r *Runner) captureDir() string {
 	return filepath.Join(r.rootDir, "Aeternum-World", "Tools", "nw_capture")
 }
@@ -91,20 +99,29 @@ func (r *Runner) captureScript() string {
 // and the launcher shim), kept apart from the untouched upstream checkout.
 func (r *Runner) azothDir() string { return filepath.Join(r.rootDir, "azoth") }
 
+// hookSetup is what prepareHooks hands to the platform engine: the shim to
+// run, the patched hook script it loads, and the hook addresses it was patched
+// with.
+type hookSetup struct {
+	shim    string
+	patched string
+	addrs   hooks.Addrs
+}
+
 // prepareHooks works out where the hooks go for THIS game build and writes the
-// patched hook script plus the shim that makes the upstream runner use it.
-// It fails, before anything is launched, if the build is not one we can hook
-// with certainty.
-func (r *Runner) prepareHooks(exePath string) (shim, patched string, err error) {
-	build, ierr := hooks.Identify(exePath)
-	if ierr != nil {
-		return "", "", fmt.Errorf("cannot read the game executable: %w", ierr)
+// patched hook script plus the shim that makes the capture use it. It fails,
+// before anything is launched, if the build is not one we can hook with
+// certainty.
+func (r *Runner) prepareHooks(exePath string) (hookSetup, error) {
+	build, err := hooks.Identify(exePath)
+	if err != nil {
+		return hookSetup{}, fmt.Errorf("cannot read the game executable: %w", err)
 	}
 	r.log(fmt.Sprintf("Game build %s (sha256 %s)", build.Version, build.SHA256))
 
 	addrs, err := hooks.Find(exePath)
 	if err != nil {
-		return "", "", fmt.Errorf("this game build (%s) is not supported by this version of Azoth Capture, "+
+		return hookSetup{}, fmt.Errorf("this game build (%s) is not supported by this version of Azoth Capture, "+
 			"so nothing was launched: %v. Look for an updated Azoth Capture", build.Version, err)
 	}
 	r.log(fmt.Sprintf("Hooks located by signature: SSL_read 0x%X, SSL_write 0x%X, nss_keylog 0x%X",
@@ -112,29 +129,32 @@ func (r *Runner) prepareHooks(exePath string) (shim, patched string, err error) 
 
 	src, err := os.ReadFile(filepath.Join(r.captureDir(), "_dtls_ledger.js"))
 	if err != nil {
-		return "", "", fmt.Errorf("capture tools are incomplete, run Install again: %w", err)
+		return hookSetup{}, fmt.Errorf("capture tools are incomplete, run Install again: %w", err)
 	}
 	out, err := patchLedgerJS(string(src), addrs)
 	if err != nil {
-		return "", "", err
+		return hookSetup{}, err
 	}
 
 	if err := os.MkdirAll(r.azothDir(), 0o755); err != nil {
-		return "", "", err
+		return hookSetup{}, err
 	}
-	patched = filepath.Join(r.azothDir(), "_dtls_ledger.js")
-	shim = filepath.Join(r.azothDir(), "azoth_run.py")
-	if err := os.WriteFile(patched, []byte(out), 0o644); err != nil {
-		return "", "", err
+	setup := hookSetup{
+		shim:    filepath.Join(r.azothDir(), shimName),
+		patched: filepath.Join(r.azothDir(), "_dtls_ledger.js"),
+		addrs:   addrs,
 	}
-	if err := os.WriteFile(shim, runShim, 0o644); err != nil {
-		return "", "", err
+	if err := os.WriteFile(setup.patched, []byte(out), 0o644); err != nil {
+		return hookSetup{}, err
 	}
-	return shim, patched, nil
+	if err := os.WriteFile(setup.shim, runShim, 0o644); err != nil {
+		return hookSetup{}, err
+	}
+	return setup, nil
 }
 
 func (r *Runner) capturesDir(session string) string {
-	return filepath.Join(r.rootDir, "Aeternum-World", "Tools", "nw_capture", "captures", session)
+	return filepath.Join(r.captureDir(), "captures", session)
 }
 
 func (r *Runner) IsEnvInstalled() bool {
@@ -142,7 +162,14 @@ func (r *Runner) IsEnvInstalled() bool {
 	_, err2 := os.Stat(r.captureScript())
 	installed := err1 == nil && err2 == nil
 	if installed {
-		r.setStatus(StatusInstalled)
+		// Report "installed" only when nothing is in progress. Overwriting a
+		// running status would hide the capture and let a second one start.
+		r.mu.Lock()
+		busy := r.status == StatusRunning || r.status == StatusInstalling
+		r.mu.Unlock()
+		if !busy {
+			r.setStatus(StatusInstalled)
+		}
 	}
 	return installed
 }
@@ -151,9 +178,9 @@ func (r *Runner) ensureScripts() error {
 	// The installer is code, not user settings: always refresh it from the
 	// embedded copy so fixes (like the pinned upstream commit) reach installs
 	// made by an older version. config.json is the user's, written only once.
-	batPath := filepath.Join(r.rootDir, "install_env.bat")
-	if cur, err := os.ReadFile(batPath); err != nil || !bytes.Equal(cur, installScript) {
-		if err := os.WriteFile(batPath, installScript, 0o644); err != nil {
+	scriptPath := filepath.Join(r.rootDir, installerName)
+	if cur, err := os.ReadFile(scriptPath); err != nil || !bytes.Equal(cur, installScript) {
+		if err := os.WriteFile(scriptPath, installScript, 0o755); err != nil {
 			return fmt.Errorf("failed to extract install script: %w", err)
 		}
 	}
@@ -181,34 +208,11 @@ func (r *Runner) InstallEnv() error {
 		return err
 	}
 
-	batPath := filepath.Join(r.rootDir, "install_env.bat")
-
 	r.log("Starting environment setup...")
 	r.log("Working in: " + r.rootDir)
 	r.log("")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, "cmd.exe", "/C", batPath, "__APP_LAUNCHED__")
-	cmd.Dir = r.rootDir
-
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return err
-	}
-	cmd.Stderr = cmd.Stdout
-
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("failed to start installer: %w", err)
-	}
-
-	scanner := bufio.NewScanner(stdout)
-	for scanner.Scan() {
-		r.log(scanner.Text())
-	}
-
-	if err := cmd.Wait(); err != nil {
+	if err := r.runInstaller(); err != nil {
 		r.log("Install failed: " + err.Error())
 		r.setStatus(StatusError)
 		return fmt.Errorf("install failed: %w", err)
@@ -229,13 +233,13 @@ func (r *Runner) StartCapture(exePath, session string, timeout int, onePerEP boo
 	r.mu.Unlock()
 
 	if _, err := os.Stat(r.pythonExe()); err != nil {
-		return fmt.Errorf("python environment not installed, run Install first")
+		return fmt.Errorf("capture environment not installed, run Install first")
 	}
 	if _, err := os.Stat(r.captureScript()); err != nil {
-		return fmt.Errorf("capture script not found, run Install first")
+		return fmt.Errorf("capture tools not found, run Install first")
 	}
 	if _, err := os.Stat(exePath); err != nil {
-		return fmt.Errorf("executable not found: %s", exePath)
+		return fmt.Errorf("game executable not found: %s", exePath)
 	}
 
 	session = strings.TrimSpace(session)
@@ -243,24 +247,16 @@ func (r *Runner) StartCapture(exePath, session string, timeout int, onePerEP boo
 		session = "my_session"
 	}
 
-	shim, patched, err := r.prepareHooks(exePath)
+	setup, err := r.prepareHooks(exePath)
 	if err != nil {
 		return err
 	}
 
-	args := []string{
-		shim, r.captureDir(), patched,
-		"--target", exePath,
-		"--session", session,
-		"--timeout", fmt.Sprint(timeout),
-	}
-	if onePerEP {
-		args = append(args, "--one-per-endpoint")
-	}
-
 	ctx, cancel := context.WithCancel(context.Background())
+	finished := make(chan struct{})
 	r.mu.Lock()
 	r.cancel = cancel
+	r.finished = finished
 	r.mu.Unlock()
 
 	r.setStatus(StatusRunning)
@@ -273,56 +269,31 @@ func (r *Runner) StartCapture(exePath, session string, timeout int, onePerEP boo
 		defer func() {
 			r.mu.Lock()
 			r.cancel = nil
+			r.finished = nil
 			r.mu.Unlock()
+			close(finished)
 		}()
-
-		cmd := exec.CommandContext(ctx, r.pythonExe(), args...)
-		cmd.Dir = r.rootDir
-
-		stdout, err := cmd.StdoutPipe()
-		if err != nil {
-			r.log("Error: " + err.Error())
-			r.setStatus(StatusError)
-			return
-		}
-		cmd.Stderr = cmd.Stdout
-
-		if err := cmd.Start(); err != nil {
-			r.log("Failed to start capture: " + err.Error())
-			r.setStatus(StatusError)
-			return
-		}
-
-		scanner := bufio.NewScanner(stdout)
-		buf := make([]byte, 0, 256*1024)
-		scanner.Buffer(buf, 1024*1024)
-		for scanner.Scan() {
-			r.log(scanner.Text())
-		}
-
-		if err := cmd.Wait(); err != nil {
-			if ctx.Err() != nil {
-				r.log("")
-				r.log("Capture stopped by user.")
-			} else {
-				r.log("Capture ended with error: " + err.Error())
-			}
-		} else {
-			r.log("")
-			r.log("Capture finished successfully.")
-		}
-		r.setStatus(StatusDone)
+		r.startEngine(ctx, exePath, session, timeout, onePerEP, setup)
 	}()
 
 	return nil
 }
 
+// StopCapture ends the running capture and waits until it has fully finished
+// writing, so callers can copy the ledger right after it returns. Copying any
+// earlier would miss the final flush.
 func (r *Runner) StopCapture() {
 	r.mu.Lock()
-	cancel := r.cancel
+	cancel, finished := r.cancel, r.finished
 	r.mu.Unlock()
-	if cancel != nil {
-		cancel()
+	if cancel == nil {
+		return
+	}
+	cancel()
+	select {
+	case <-finished:
+	case <-time.After(stopWait):
+		r.log("The capture did not finish within " + stopWait.String() + "; the ledger may miss its last records.")
 	}
 }
 
@@ -340,7 +311,7 @@ func (r *Runner) OpenCaptureDir(session string) error {
 		dir = filepath.Dir(dir)
 	}
 	os.MkdirAll(dir, 0o755)
-	return exec.Command("explorer.exe", dir).Start()
+	return r.openInFileManager(dir)
 }
 
 func (r *Runner) RootDir() string { return r.rootDir }

@@ -66,3 +66,62 @@ jobs:
             build/bin/AzothCapture.exe build/bin/SHA256SUMS.txt `
             --title "Azoth Capture ${{ github.ref_name }}" `
             --notes-file RELEASE_NOTES.md
+
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version-file: go.mod
+
+      - name: Install GTK and WebKit
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
+
+      # Ubuntu ships WebKitGTK 4.1 only; Wails defaults to 4.0, so every Go
+      # step that compiles the window code needs the webkit2_41 tag.
+      - name: Vet and test
+        run: |
+          go vet -tags webkit2_41 ./...
+          go test -tags webkit2_41 ./...
+
+      - name: Install Wails
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.13.0
+
+      - name: Build
+        run: wails build -platform linux/amd64 -tags webkit2_41
+
+      - name: Package and checksum
+        run: |
+          cd build/bin
+          mv AzothCapture AzothCapture-linux-amd64
+          sha256sum AzothCapture-linux-amd64 > SHA256SUMS-linux.txt
+          cat SHA256SUMS-linux.txt
+
+      - uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-path: build/bin/AzothCapture-linux-amd64
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: AzothCapture-linux
+          path: |
+            build/bin/AzothCapture-linux-amd64
+            build/bin/SHA256SUMS-linux.txt
+
+      # The Windows job creates the GitHub release; this waits for it to exist,
+      # then adds the Linux files to the same release.
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for i in $(seq 1 30); do
+            gh release view "${{ github.ref_name }}" >/dev/null 2>&1 && break
+            sleep 10
+          done
+          gh release upload "${{ github.ref_name }}" \
+            build/bin/AzothCapture-linux-amd64 build/bin/SHA256SUMS-linux.txt --clobber

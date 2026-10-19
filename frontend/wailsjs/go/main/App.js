@@ -70,8 +70,16 @@ export function PickOutputDir() {
   return window['go']['main']['App']['PickOutputDir']();
 }
 
+export function PickVideoWindow() {
+  return window['go']['main']['App']['PickVideoWindow']();
+}
+
 export function RecoverDraft() {
   return window['go']['main']['App']['RecoverDraft']();
+}
+
+export function RefreshVideo() {
+  return window['go']['main']['App']['RefreshVideo']();
 }
 
 export function RetryInstall() {
@@ -90,6 +98,22 @@ export function SetTargets(arg1) {
   return window['go']['main']['App']['SetTargets'](arg1);
 }
 
+export function SetVideoAllowed(arg1) {
+  return window['go']['main']['App']['SetVideoAllowed'](arg1);
+}
+
+export function SetVideoAudio(arg1) {
+  return window['go']['main']['App']['SetVideoAudio'](arg1);
+}
+
+export function SetVideoHotkey(arg1) {
+  return window['go']['main']['App']['SetVideoHotkey'](arg1);
+}
+
+export function SetVideoTarget(arg1) {
+  return window['go']['main']['App']['SetVideoTarget'](arg1);
+}
+
 export function StartSession(arg1, arg2, arg3, arg4, arg5) {
   return window['go']['main']['App']['StartSession'](arg1, arg2, arg3, arg4, arg5);
 }
@@ -100,4 +124,12 @@ export function StopSession() {
 
 export function SuggestName(arg1) {
   return window['go']['main']['App']['SuggestName'](arg1);
+}
+
+export function ToggleVideo() {
+  return window['go']['main']['App']['ToggleVideo']();
+}
+
+export function VideoState() {
+  return window['go']['main']['App']['VideoState']();
 }

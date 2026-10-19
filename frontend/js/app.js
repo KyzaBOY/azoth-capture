@@ -9,6 +9,10 @@
   let activities = [];
   let settings = { hotkey: "F8", output_dir: "", exe_path: "", timeout: 600, one_per_endpoint: false };
   let hotkeyErr = "";
+  let platform = "";
+  let video = null; // VideoStatus from the app; null until Boot
+
+
   let catalog = null;
   let nameTouched = false;
   let starting = false;
@@ -102,6 +106,7 @@
 
     setFieldsLocked(running || starting);
     renderSteps();
+    paintVideo();
     renderCards();
     renderPackets();
 
@@ -224,7 +229,10 @@
 
       if (res.send_dir) $("done-where").textContent = "Files to send: " + res.send_dir;
 
-      notice(res.export_error ? "Export failed: " + res.export_error : "Saved — open the send folder to share.", !!res.export_error);
+      const videoNote = res.video_error ? " Video: " + res.video_error
+        : res.video_clips ? ` ${res.video_clips} video clip(s) kept in the session folder (not in send).` : "";
+      notice((res.export_error ? "Export failed: " + res.export_error : "Saved — open the send folder to share.") + videoNote,
+        !!(res.export_error || res.video_error));
     } catch (e) { fail(e); }
   }
 
@@ -429,37 +437,116 @@
     else { c.textContent = "Hotkey " + settings.hotkey + " ready"; c.className = "cell ok"; }
   }
 
+  // captureHotkey lets the player press a new combination for one hotkey.
+  // set sends it to the app; apply stores what the app answered. Both
+  // hotkeys are paused while a combination is being pressed.
   let capturing = false;
-  function captureHotkey() {
+  function captureHotkey(btnId, valId, set, apply) {
     if (capturing) return;
     capturing = true;
-    const btn = $("btn-hk"), err = $("s-err");
+    const btn = $(btnId), err = $("s-err");
     err.hidden = true;
     btn.textContent = "Press keys…";
-    $("s-hotkey").textContent = "Press the new combination (Esc cancels)";
+    $(valId).textContent = "Press the new combination (Esc cancels)";
     api.BeginHotkeyCapture();
-    const done = async (status) => {
+    const finish = async (status) => {
       window.removeEventListener("keydown", onKey, true);
       capturing = false;
       btn.textContent = "Change";
-      if (status) { settings.hotkey = status.hotkey; hotkeyErr = status.error; }
+      if (status) apply(status);
+      else {
+        const hs = await api.EndHotkeyCapture();
+        settings.hotkey = hs.hotkey; hotkeyErr = hs.error;
+        video = await api.VideoState();
+      }
       paintHotkey();
+      paintVideo();
     };
     const onKey = async (e) => {
       if (["Control", "Alt", "Shift", "Meta"].includes(e.key)) return;
       e.preventDefault(); e.stopPropagation();
-      if (e.key === "Escape") { done(await api.EndHotkeyCapture()); return; }
+      if (e.key === "Escape") { finish(null); return; }
       const key = keyFromEvent(e);
       if (!key) { err.textContent = "That key can't be used as a hotkey."; err.hidden = false; return; }
       const combo = [e.ctrlKey && "Ctrl", e.altKey && "Alt", e.shiftKey && "Shift", e.metaKey && "Win", key].filter(Boolean).join("+");
       try {
-        done(await api.SetHotkey(combo));
+        finish(await set(combo));
       } catch (ex) {
         err.textContent = String((ex && ex.message) || ex); err.hidden = false;
-        done(await api.EndHotkeyCapture());
+        finish(null);
       }
     };
     window.addEventListener("keydown", onKey, true);
+  }
+
+  // ---- video (opt-in, Linux only) -----------------------------------------------
+  function paintVideo() {
+    const linux = platform === "linux" && !!video;
+    const show = (sel, on) => document.querySelectorAll(sel).forEach((el) => { el.hidden = !on; });
+    const ready = linux && video.info.available;
+    const allowed = ready && video.allowed;
+    const win = ready && video.info.window_capture;
+    show(".video-row", linux);
+    show(".video-opt", allowed);
+    show(".video-mon", allowed && !win);
+    show(".video-win", allowed && win);
+    $("btn-video").hidden = !allowed;
+    $("video-hint").hidden = !allowed;
+    if (!linux) return;
+
+    const note = $("s-video-note"), allowBtn = $("btn-video-allow");
+    note.hidden = false;
+    if (!ready) {
+      $("s-video").textContent = "Not available";
+      allowBtn.textContent = "Check again";
+      note.textContent = video.info.reason;
+      return;
+    }
+    $("s-video").textContent = !video.allowed ? "Off" : video.recording ? "On, recording" : "On";
+    allowBtn.textContent = video.allowed ? "Turn off" : "Turn on";
+    const problem = video.error || video.hotkey_error;
+    note.textContent = problem ? "Video: " + problem
+      : !video.allowed ? "Off by default. When on, you start and stop each clip yourself."
+      : win && !video.window_picked ? "With New World open, press Pick window and choose the New World window. You do this once."
+      : !win && !video.target ? "Choose the monitor New World is on."
+      : "Clips stay in the session folder on this PC, never in send. Sound is the game's own sound only; a microphone is never recorded." +
+        (video.clips ? ` ${video.clips} clip(s) this session.` : "");
+
+    $("s-video-window").textContent = video.window_picked ? "Game window" : "Not picked yet";
+    const sel = $("s-video-target"), monitors = video.info.monitors || [];
+    const values = ["", ...monitors.map((m) => m.name)];
+    if ([...sel.options].map((o) => o.value).join("|") !== values.join("|")) {
+      sel.replaceChildren(h("option", { value: "", text: "Choose the game's monitor" }),
+        ...monitors.map((m) => h("option", { value: m.name, text: `${m.name} (${m.size})` })));
+    }
+    sel.value = win ? "" : video.target;
+    $("s-video-audio").value = video.audio;
+    $("s-vhotkey").textContent = video.hotkey;
+    $("vhk-label").textContent = video.hotkey;
+
+    const b = $("btn-video"), running = S && S.phase === "running";
+    b.disabled = !running && !video.recording;
+    b.textContent = video.recording ? "● Stop video" : "Start video";
+    b.classList.toggle("rec", video.recording);
+  }
+
+  async function doVideoAllow() {
+    try {
+      video = video.info.available ? await api.SetVideoAllowed(!video.allowed) : await api.RefreshVideo();
+      paintVideo();
+    } catch (e) { fail(e); }
+  }
+
+  async function doPickWindow() {
+    const b = $("btn-video-pick");
+    b.disabled = true; b.textContent = "Choose in the dialog…";
+    try { video = await api.PickVideoWindow(); }
+    catch (e) { fail(e); }
+    finally { b.disabled = false; b.textContent = "Pick window"; paintVideo(); }
+  }
+
+  async function doToggleVideo() {
+    try { video = await api.ToggleVideo(); paintVideo(); } catch (e) { fail(e); }
   }
 
   // ---- wire -------------------------------------------------------------------
@@ -499,7 +586,15 @@
       if (S.phase !== "running" && activities.includes(a)) { $("in-activity").value = a; suggest(); }
     });
 
-    $("btn-hk").addEventListener("click", captureHotkey);
+    $("btn-hk").addEventListener("click", () => captureHotkey("btn-hk", "s-hotkey", api.SetHotkey,
+      (st) => { settings.hotkey = st.hotkey; hotkeyErr = st.error; }));
+    $("btn-vhk").addEventListener("click", () => captureHotkey("btn-vhk", "s-vhotkey", api.SetVideoHotkey,
+      (st) => { video = st; }));
+    $("btn-video").addEventListener("click", doToggleVideo);
+    $("btn-video-allow").addEventListener("click", doVideoAllow);
+    $("btn-video-pick").addEventListener("click", doPickWindow);
+    $("s-video-target").addEventListener("change", (e) => e.target.value && api.SetVideoTarget(e.target.value).then((st) => { video = st; paintVideo(); }).catch(fail));
+    $("s-video-audio").addEventListener("change", (e) => api.SetVideoAudio(e.target.value).then((st) => { video = st; paintVideo(); }).catch(fail));
     $("btn-dir").addEventListener("click", async () => {
       try {
         const dir = await api.PickOutputDir();
@@ -517,11 +612,24 @@
     B.bus.on("notice", (m) => notice(m));
     B.bus.on("caplog", (line) => appendLog(line));
     B.bus.on("capstatus", (st) => updateCapStatus(st));
+    B.bus.on("video", (st) => { video = st; paintVideo(); });
   }
 
   function paintDir() {
     $("s-dir").textContent = settings.output_dir;
     $("s-dir").title = settings.output_dir;
+  }
+
+  // Windows starts the game and stops it at the timeout; Linux attaches to the
+  // game you started and only stops recording. The Linux capture writes only
+  // the ledger, so the HTTPS "one per endpoint" option does not apply there.
+  function applyPlatform(p) {
+    platform = p;
+    const linux = platform === "linux";
+    $("cap-oneperep").closest("label").hidden = linux;
+    $("cap-timeout").title = linux
+      ? "Seconds after which recording stops. The game keeps running."
+      : "Seconds after which the capture stops and closes the game.";
   }
 
   async function init() {
@@ -531,6 +639,8 @@
     $("ver").textContent = boot.version;
     activities = boot.activities;
     settings = boot.settings;
+    video = boot.video || null;
+    platform = boot.platform || "";
     hotkeyErr = boot.hotkey_error || "";
     $("in-activity").replaceChildren(...activities.map((a) => h("option", { value: a, text: a })));
     paintHotkey();
@@ -541,6 +651,8 @@
     if (settings.exe_path) $("cap-exe").value = settings.exe_path;
     if (settings.timeout) $("cap-timeout").value = settings.timeout;
     if (settings.one_per_endpoint) $("cap-oneperep").checked = true;
+    applyPlatform(boot.platform);
+    paintVideo();
 
     if (boot.env_ready) {
       updateCapStatus("installed");

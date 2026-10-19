@@ -1,7 +1,9 @@
-// Package hotkey registra um atalho GLOBAL do Windows com RegisterHotKey, que
-// funciona com o jogo em foco. É só isso: sem hook de teclado de baixo nível,
-// sem ler tecla de outro processo. O Windows entrega a mensagem WM_HOTKEY pra
-// uma thread nossa quando (e só quando) a combinação registrada é apertada.
+// Package hotkey registers one global capture-mark key that works while the
+// game has focus, and acts only on the single combination you chose. On
+// Windows (hotkey_windows.go) the system delivers only that combination. On
+// Linux (hotkey_linux.go) the kernel delivers every key event, and the code
+// drops all but the modifiers and the chosen key; that file explains the
+// permission it needs. This file parses and formats the key combination.
 package hotkey
 
 import (
@@ -9,7 +11,8 @@ import (
 	"strings"
 )
 
-// Modificadores do Windows (MOD_*).
+// Modifier bits. They are the Windows MOD_* values, and both platforms use
+// them to describe a combination.
 const (
 	modAlt   = 0x0001
 	modCtrl  = 0x0002
@@ -17,7 +20,7 @@ const (
 	modWin   = 0x0008
 )
 
-// Spec é uma combinação: modificadores + tecla virtual.
+// Spec is a key combination: modifiers plus a virtual key.
 type Spec struct {
 	Mods uint32
 	VK   uint32
@@ -26,7 +29,7 @@ type Spec struct {
 type keyDef struct {
 	name string
 	vk   uint32
-	free bool // pode ser usada sem modificador (não atrapalha a digitação)
+	free bool // usable without a modifier (does not interfere with typing)
 }
 
 var keys = buildKeys()
@@ -54,9 +57,9 @@ func buildKeys() []keyDef {
 	)
 }
 
-// Parse lê "F8", "Ctrl+Alt+M", "Shift+Num5"... (sem diferenciar maiúsculas).
-// Tecla de digitação (letra, número, espaço) exige pelo menos um modificador,
-// senão o atalho roubaria a tecla do sistema inteiro.
+// Parse reads "F8", "Ctrl+Alt+M", "Shift+Num5"... (case-insensitive). A typing
+// key (letter, number, space) needs at least one modifier, otherwise the
+// shortcut would steal that key from the whole system.
 func Parse(s string) (Spec, error) {
 	var sp Spec
 	var key *keyDef
@@ -98,7 +101,7 @@ func Parse(s string) (Spec, error) {
 	return sp, nil
 }
 
-// String devolve a forma canônica ("Ctrl+Alt+F8").
+// String returns the canonical form ("Ctrl+Alt+F8").
 func (s Spec) String() string {
 	var parts []string
 	if s.Mods&modCtrl != 0 {

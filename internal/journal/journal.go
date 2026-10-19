@@ -1,9 +1,9 @@
-// Package journal é o núcleo do Azoth Capture Journal: a sessão, os passos
-// marcados e o rascunho em disco. Não conhece janela nem atalho; quem chama
-// (app.go) injeta o relógio e recebe um aviso a cada mudança.
+// Package journal is the core of the Azoth Capture Journal: the session, the
+// marked steps and the draft on disk. It knows nothing about the window or the
+// hotkey; the caller (app.go) injects the clock and is told about every change.
 //
-// O relógio é o do PC (Unix ms), o mesmo que o app de captura grava no
-// ledger.bin, então os horários dos passos casam com os do ledger.
+// The clock is the PC's (Unix ms), the same one the capture writes into
+// ledger.bin, so the step times line up with the ledger's.
 package journal
 
 import (
@@ -18,20 +18,20 @@ import (
 	"time"
 )
 
-// Versão do app, gravada no steps.json ("azoth-capture 0.1.0").
+// App version, written into steps.json ("azoth-capture 0.1.0").
 const (
 	AppName = "azoth-capture"
 	Version = "0.2.0"
 )
 
-// Quem gerou o passo.
+// What produced the step.
 const (
 	ViaButton    = "button"
 	ViaHotkey    = "hotkey"
 	ViaChecklist = "checklist"
 )
 
-// Fases da sessão.
+// Session phases.
 const (
 	PhaseIdle    = "idle"
 	PhaseRunning = "running"
@@ -46,8 +46,8 @@ var (
 	ErrNoStep         = errors.New("step not found")
 )
 
-// Activities é a lista do §7 do CONTRATOS.md, sem "Developer-only" (comando de
-// teste que o jogo normal nunca manda; não há o que gravar).
+// Activities is the list from section 7 of CONTRATOS.md, without "Developer-only" (a
+// test command the normal game never sends, so there is nothing to record).
 var Activities = []string{
 	"Fishing", "Combat", "Inventory & gear", "Chat", "Trading post", "Housing",
 	"Expeditions", "Wars & PvP", "Crafting", "Gathering", "Quests",
@@ -55,7 +55,7 @@ var Activities = []string{
 	"Progression", "Store & cosmetics", "Camping", "Other",
 }
 
-// Step é um passo marcado. ID só existe pra tela editar/apagar; não vai pro steps.json.
+// Step is one marked step. ID exists only so the screen can edit or delete it; it is not written to steps.json.
 type Step struct {
 	ID     int    `json:"id"`
 	TMs    int64  `json:"t_ms"`
@@ -64,7 +64,7 @@ type Step struct {
 	Via    string `json:"via"`
 }
 
-// Session é o estado completo da sessão e também o formato do rascunho.
+// Session is the full session state, and also the draft format.
 type Session struct {
 	Schema    int    `json:"schema"`
 	Phase     string `json:"phase"`
@@ -75,19 +75,19 @@ type Session struct {
 	Targets   []int  `json:"targets"`
 	Steps     []Step `json:"steps"`
 	NextID    int    `json:"next_id"`
-	// Exported: o steps.json atual já está em disco; qualquer edição zera.
+	// Exported: the current steps.json is already on disk; any edit clears it.
 	Exported bool  `json:"exported"`
 	SavedMs  int64 `json:"saved_ms"`
 }
 
-// State é o que a tela recebe: a sessão mais o que só existe em memória.
+// State is what the screen receives: the session plus what exists only in memory.
 type State struct {
 	Session
 	ExportDir  string `json:"export_dir"`
 	DraftError string `json:"draft_error"`
 }
 
-// Journal guarda a sessão atual e salva o rascunho a cada mudança.
+// Journal holds the current session and saves the draft on every change.
 type Journal struct {
 	mu        sync.Mutex
 	now       func() time.Time
@@ -98,7 +98,7 @@ type Journal struct {
 	onChange  func(State)
 }
 
-// New cria um Journal vazio. draftPath vazio desliga o rascunho (testes).
+// New creates an empty Journal. An empty draftPath turns the draft off (tests).
 func New(now func() time.Time, draftPath string, onChange func(State)) *Journal {
 	if now == nil {
 		now = time.Now
@@ -112,7 +112,7 @@ func emptySession() Session {
 	return Session{Schema: 1, Phase: PhaseIdle, Targets: []int{}, Steps: []Step{}, NextID: 1}
 }
 
-// State devolve uma cópia do estado atual.
+// State returns a copy of the current state.
 func (j *Journal) State() State {
 	j.mu.Lock()
 	defer j.mu.Unlock()
@@ -133,7 +133,7 @@ func (j *Journal) stateLocked() State {
 	return State{Session: s, ExportDir: j.exportDir, DraftError: j.draftErr}
 }
 
-// commit salva o rascunho, solta o lock e avisa a tela. Chamar com o lock preso.
+// commit saves the draft, releases the lock and notifies the screen. Call it with the lock held.
 func (j *Journal) commit() State {
 	j.s.Exported = false
 	j.persistLocked()
@@ -145,7 +145,7 @@ func (j *Journal) commit() State {
 	return st
 }
 
-// Start abre uma sessão nova. Nome ou atividade vazios viram "session" / "Other".
+// Start opens a new session. An empty name or activity becomes "session" / "Other".
 func (j *Journal) Start(name, activity string) (State, error) {
 	j.mu.Lock()
 	if j.s.Phase == PhaseRunning {
@@ -159,7 +159,7 @@ func (j *Journal) Start(name, activity string) (State, error) {
 	if activity = strings.TrimSpace(activity); activity == "" {
 		activity = "Other"
 	}
-	targets := j.s.Targets // alvos escolhidos antes do Start valem pra sessão
+	targets := j.s.Targets // targets chosen before Start apply to the session
 	j.s = emptySession()
 	j.s.Targets = targets
 	j.s.Phase = PhaseRunning
@@ -170,7 +170,7 @@ func (j *Journal) Start(name, activity string) (State, error) {
 	return j.commit(), nil
 }
 
-// Stop encerra a sessão. O rascunho fica até o export dar certo.
+// Stop ends the session. The draft stays until the export succeeds.
 func (j *Journal) Stop() (State, error) {
 	j.mu.Lock()
 	if j.s.Phase != PhaseRunning {
@@ -182,8 +182,8 @@ func (j *Journal) Stop() (State, error) {
 	return j.commit(), nil
 }
 
-// Mark grava um passo com o horário `at` (o instante do clique ou da tecla,
-// tomado por quem chama ANTES de qualquer trabalho). Texto vazio vira "Step N".
+// Mark records a step at time `at` (the moment of the click or key press,
+// taken by the caller BEFORE any other work). Empty text becomes "Step N".
 func (j *Journal) Mark(at time.Time, via, text string, target *int) (Step, error) {
 	j.mu.Lock()
 	if j.s.Phase != PhaseRunning {
@@ -206,7 +206,7 @@ func (j *Journal) Mark(at time.Time, via, text string, target *int) (Step, error
 	return st, nil
 }
 
-// EditStep troca o texto de um passo (o horário nunca muda).
+// EditStep changes the text of a step (its time never changes).
 func (j *Journal) EditStep(id int, text string) (State, error) {
 	j.mu.Lock()
 	i := j.indexLocked(id)
@@ -222,7 +222,7 @@ func (j *Journal) EditStep(id int, text string) (State, error) {
 	return j.commit(), nil
 }
 
-// DeleteStep apaga um passo.
+// DeleteStep removes a step.
 func (j *Journal) DeleteStep(id int) (State, error) {
 	j.mu.Lock()
 	i := j.indexLocked(id)
@@ -234,7 +234,7 @@ func (j *Journal) DeleteStep(id int) (State, error) {
 	return j.commit(), nil
 }
 
-// SetTargets guarda os pacotes escolhidos pra gravar (sem repetição, na ordem).
+// SetTargets stores the packets chosen for recording (no repeats, in order).
 func (j *Journal) SetTargets(ids []int) State {
 	j.mu.Lock()
 	seen := map[int]bool{}
@@ -249,7 +249,7 @@ func (j *Journal) SetTargets(ids []int) State {
 	return j.commit()
 }
 
-// Reset descarta a sessão (e o rascunho) e volta pra tela inicial.
+// Reset discards the session (and the draft) and returns to the start screen.
 func (j *Journal) Reset() State {
 	j.mu.Lock()
 	targets := j.s.Targets
@@ -274,7 +274,7 @@ func (j *Journal) indexLocked(id int) int {
 	return -1
 }
 
-// cleanText tira quebras de linha (o steps.txt é uma linha por passo) e limita o tamanho.
+// cleanText removes line breaks (steps.txt has one line per step) and limits the length.
 func cleanText(s string) string {
 	s = strings.Join(strings.Fields(strings.NewReplacer("\r", " ", "\n", " ", "\t", " ").Replace(s)), " ")
 	if r := []rune(s); len(r) > maxTextRunes {
@@ -283,10 +283,10 @@ func cleanText(s string) string {
 	return s
 }
 
-// ---- rascunho ---------------------------------------------------------------
+// ---- draft ------------------------------------------------------------------
 
-// persistLocked grava o rascunho de forma atômica (tmp + rename). Falha não
-// interrompe a sessão; vira aviso na tela.
+// persistLocked writes the draft atomically (tmp + rename). A failure does not
+// stop the session; it becomes a notice on screen.
 func (j *Journal) persistLocked() {
 	if j.draftPath == "" || j.s.Phase == PhaseIdle {
 		return
@@ -306,7 +306,7 @@ func (j *Journal) removeDraftLocked() {
 	j.draftErr = ""
 }
 
-// markExported grava no rascunho que o steps.json atual já está no disco.
+// markExported records in the draft that the current steps.json is already on disk.
 func (j *Journal) markExported(dir string) State {
 	j.mu.Lock()
 	j.s.Exported = true
@@ -325,7 +325,7 @@ func (j *Journal) markExported(dir string) State {
 	return st
 }
 
-// DraftInfo resume um rascunho achado no disco.
+// DraftInfo summarizes a draft found on disk.
 type DraftInfo struct {
 	Found     bool   `json:"found"`
 	Name      string `json:"name"`
@@ -336,8 +336,8 @@ type DraftInfo struct {
 	SavedMs   int64  `json:"saved_ms"`
 }
 
-// CheckDraft olha o rascunho em disco. Um rascunho já exportado e sem edição
-// depois não é oferecido: é apagado em silêncio. Ilegível também (fica .bad).
+// CheckDraft looks at the draft on disk. A draft that was already exported and not
+// edited since is not offered: it is deleted quietly. So is an unreadable one (kept as .bad).
 func (j *Journal) CheckDraft() DraftInfo {
 	j.mu.Lock()
 	defer j.mu.Unlock()
@@ -364,7 +364,7 @@ func (j *Journal) loadDraftLocked() (Session, error) {
 	var s Session
 	if err := json.Unmarshal(b, &s); err != nil || s.Schema != 1 ||
 		(s.Phase != PhaseRunning && s.Phase != PhaseStopped && s.Phase != PhaseIdle) {
-		os.Rename(j.draftPath, j.draftPath+".bad") // guarda pra inspeção, não oferece de novo
+		os.Rename(j.draftPath, j.draftPath+".bad") // kept for inspection, not offered again
 		return Session{}, errors.New("unreadable draft")
 	}
 	if s.Targets == nil {
@@ -384,8 +384,8 @@ func (j *Journal) loadDraftLocked() (Session, error) {
 	return s, nil
 }
 
-// Recover carrega o rascunho. Sessão que estava rodando continua rodando
-// (o Stop dela vale a hora em que a pessoa apertar).
+// Recover loads the draft. A session that was running keeps running
+// (its Stop takes the time at which the person presses it).
 func (j *Journal) Recover() (State, error) {
 	j.mu.Lock()
 	s, err := j.loadDraftLocked()
@@ -403,7 +403,7 @@ func (j *Journal) Recover() (State, error) {
 	return st, nil
 }
 
-// DiscardDraft apaga o rascunho sem carregar.
+// DiscardDraft deletes the draft without loading it.
 func (j *Journal) DiscardDraft() {
 	j.mu.Lock()
 	j.removeDraftLocked()
@@ -413,12 +413,12 @@ func (j *Journal) DiscardDraft() {
 func mustJSON(v any) []byte {
 	b, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
-		panic(err) // tipos próprios, não falha
+		panic(err) // our own types: this cannot fail
 	}
 	return append(b, '\n')
 }
 
-// writeFileAtomic escreve em arquivo temporário e renomeia por cima.
+// writeFileAtomic writes to a temporary file and renames it over the target.
 func writeFileAtomic(path string, data []byte) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err

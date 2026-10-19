@@ -204,6 +204,9 @@ input:disabled,select:disabled{background:var(--face-2);color:var(--ink-3)}
 .kv>label{font:500 11px/1 var(--mono);color:var(--ink-3);letter-spacing:.14em;text-transform:uppercase}
 .kv .val{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--ink-2);padding:6px 8px;box-shadow:var(--etched);background:var(--face-2)}
 .kv .err{grid-column:1/-1;color:var(--accent);font-size:11.5px}
+.kv .note{grid-column:1/-1;color:var(--ink-2);font-size:11.5px;line-height:1.4}
+.kv select.val{border:none;font:inherit;cursor:pointer}
+#btn-video.rec{color:var(--accent)}
 .kv-input{border:none;background:transparent;font:inherit;color:inherit;width:100%;outline:none}
 .kv-input.short{width:70px}
 .kv-check{display:flex;align-items:center;gap:6px;grid-column:1/3}

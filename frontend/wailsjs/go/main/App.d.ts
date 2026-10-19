@@ -37,7 +37,11 @@ export function OpenSendDir():Promise<void>;
 
 export function PickOutputDir():Promise<string>;
 
+export function PickVideoWindow():Promise<main.VideoStatus>;
+
 export function RecoverDraft():Promise<journal.State>;
+
+export function RefreshVideo():Promise<main.VideoStatus>;
 
 export function RetryInstall():Promise<void>;
 
@@ -47,8 +51,20 @@ export function SetHotkey(arg1:string):Promise<main.HotkeyStatus>;
 
 export function SetTargets(arg1:Array<number>):Promise<journal.State>;
 
+export function SetVideoAllowed(arg1:boolean):Promise<main.VideoStatus>;
+
+export function SetVideoAudio(arg1:string):Promise<main.VideoStatus>;
+
+export function SetVideoHotkey(arg1:string):Promise<main.VideoStatus>;
+
+export function SetVideoTarget(arg1:string):Promise<main.VideoStatus>;
+
 export function StartSession(arg1:string,arg2:string,arg3:string,arg4:number,arg5:boolean):Promise<journal.State>;
 
 export function StopSession():Promise<main.StopResult>;
 
 export function SuggestName(arg1:string):Promise<string>;
+
+export function ToggleVideo():Promise<main.VideoStatus>;
+
+export function VideoState():Promise<main.VideoStatus>;

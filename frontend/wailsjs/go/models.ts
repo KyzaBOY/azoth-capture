@@ -7,6 +7,10 @@ export namespace config {
 	    exe_path: string;
 	    timeout: number;
 	    one_per_endpoint: boolean;
+	    video_allowed: boolean;
+	    video_target: string;
+	    video_audio: string;
+	    video_hotkey: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new Settings(source);
@@ -20,6 +24,10 @@ export namespace config {
 	        this.exe_path = source["exe_path"];
 	        this.timeout = source["timeout"];
 	        this.one_per_endpoint = source["one_per_endpoint"];
+	        this.video_allowed = source["video_allowed"];
+	        this.video_target = source["video_target"];
+	        this.video_audio = source["video_audio"];
+	        this.video_hotkey = source["video_hotkey"];
 	    }
 	}
 
@@ -130,6 +138,54 @@ export namespace journal {
 
 export namespace main {
 	
+	export class VideoStatus {
+	    info: video.Info;
+	    allowed: boolean;
+	    recording: boolean;
+	    target: string;
+	    window_picked: boolean;
+	    audio: string;
+	    hotkey: string;
+	    hotkey_error: string;
+	    clips: number;
+	    error: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new VideoStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.info = this.convertValues(source["info"], video.Info);
+	        this.allowed = source["allowed"];
+	        this.recording = source["recording"];
+	        this.target = source["target"];
+	        this.window_picked = source["window_picked"];
+	        this.audio = source["audio"];
+	        this.hotkey = source["hotkey"];
+	        this.hotkey_error = source["hotkey_error"];
+	        this.clips = source["clips"];
+	        this.error = source["error"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class Boot {
 	    version: string;
 	    settings: config.Settings;
@@ -139,6 +195,8 @@ export namespace main {
 	    hotkey_error: string;
 	    env_ready: boolean;
 	    app_dir: string;
+	    platform: string;
+	    video: VideoStatus;
 	
 	    static createFrom(source: any = {}) {
 	        return new Boot(source);
@@ -154,6 +212,8 @@ export namespace main {
 	        this.hotkey_error = source["hotkey_error"];
 	        this.env_ready = source["env_ready"];
 	        this.app_dir = source["app_dir"];
+	        this.platform = source["platform"];
+	        this.video = this.convertValues(source["video"], VideoStatus);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -262,6 +322,8 @@ export namespace main {
 	    export_error: string;
 	    send_dir: string;
 	    size_warning: string;
+	    video_clips: number;
+	    video_error: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new StopResult(source);
@@ -274,6 +336,8 @@ export namespace main {
 	        this.export_error = source["export_error"];
 	        this.send_dir = source["send_dir"];
 	        this.size_warning = source["size_warning"];
+	        this.video_clips = source["video_clips"];
+	        this.video_error = source["video_error"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -339,6 +403,61 @@ export namespace needed {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.activity = source["activity"];
 	        this.packets = this.convertValues(source["packets"], Packet);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+
+}
+
+export namespace video {
+	
+	export class Monitor {
+	    name: string;
+	    size: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Monitor(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.size = source["size"];
+	    }
+	}
+	export class Info {
+	    available: boolean;
+	    reason: string;
+	    window_capture: boolean;
+	    monitors: Monitor[];
+	
+	    static createFrom(source: any = {}) {
+	        return new Info(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.available = source["available"];
+	        this.reason = source["reason"];
+	        this.window_capture = source["window_capture"];
+	        this.monitors = this.convertValues(source["monitors"], Monitor);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

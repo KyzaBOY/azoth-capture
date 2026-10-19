@@ -47,6 +47,8 @@
       <div class="markrow">
         <button class="btn primary big" id="btn-mark" type="button" disabled>Mark</button>
         <div class="keyhint">Hotkey <span class="kbd" id="hk-label">F8</span><br>works while the game has focus</div>
+        <button class="btn big" id="btn-video" type="button" hidden disabled>Start video</button>
+        <div class="keyhint" id="video-hint" hidden>Video <span class="kbd" id="vhk-label">F9</span><br>starts or stops a clip</div>
       </div>
 
       <!-- session setup -->
@@ -56,7 +58,7 @@
         <div class="row">
           <label class="field" style="flex:3 1 250px"><span>Game executable</span>
             <div class="input-row">
-              <input type="text" id="cap-exe" spellcheck="false" autocomplete="off" placeholder="C:\SteamLibrary\...\NewWorld.exe">
+              <input type="text" id="cap-exe" spellcheck="false" autocomplete="off" placeholder=".../New World/Bin64/NewWorld.exe">
               <button class="btn small" id="btn-browse-exe" type="button">Browse</button>
             </div>
           </label>
@@ -138,6 +140,25 @@
               <label>Folder</label>
               <div class="val" id="s-dir" title=""></div>
               <button class="btn small" id="btn-dir" type="button">Browse</button>
+              <label class="video-row" hidden>Video</label>
+              <div class="val video-row" id="s-video" hidden>Off</div>
+              <button class="btn small video-row" id="btn-video-allow" type="button" hidden>Turn on</button>
+              <label class="video-opt video-win" hidden>Screen</label>
+              <div class="val video-opt video-win" id="s-video-window" hidden>Not picked yet</div>
+              <button class="btn small video-opt video-win" id="btn-video-pick" type="button" hidden>Pick window</button>
+              <label class="video-opt video-mon" hidden>Monitor</label>
+              <select class="val video-opt video-mon" id="s-video-target" hidden></select>
+              <span class="video-opt video-mon" hidden></span>
+              <label class="video-opt" hidden>Video sound</label>
+              <select class="val video-opt" id="s-video-audio" hidden>
+                <option value="game">Game sound, no microphone</option>
+                <option value="none">No sound</option>
+              </select>
+              <span class="video-opt" hidden></span>
+              <label class="video-opt" hidden>Video key</label>
+              <div class="val video-opt" id="s-vhotkey" hidden>F9</div>
+              <button class="btn small video-opt" id="btn-vhk" type="button" hidden>Change</button>
+              <div class="note video-row" id="s-video-note" hidden></div>
               <div class="err" id="s-err" hidden></div>
             </div>
             <div class="retry-row" id="retry-row" hidden>
