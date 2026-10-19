@@ -1,6 +1,6 @@
-// Package needed lê a lista de pacotes que a comunidade ainda precisa gravar
-// (GET /api/needed do site do Azoth). É a única chamada de rede do app; sem ela
-// o diário funciona do mesmo jeito, só sem as missões.
+// Package needed reads the list of packets the community still needs recorded
+// (GET /api/needed on the Azoth site). It is the app's only network call; without
+// it the journal works the same way, just without the missions.
 package needed
 
 import (
@@ -13,12 +13,12 @@ import (
 	"time"
 )
 
-// URL é o endpoint público.
+// URL is the public endpoint.
 const URL = "https://projectazoth.com/api/needed"
 
 const maxBody = 16 << 20
 
-// Packet é um pacote da lista, no formato de /api/needed.
+// Packet is one packet of the list, in the /api/needed format.
 type Packet struct {
 	Idx             int      `json:"idx"`
 	Name            string   `json:"name"`
@@ -26,12 +26,12 @@ type Packet struct {
 	Status          string   `json:"status"` // wanted | captured
 	What            string   `json:"what"`
 	Confidence      string   `json:"confidence"`
-	ConfidenceLabel string   `json:"confidence_label"` // calculado aqui, não vem da API
+	ConfidenceLabel string   `json:"confidence_label"` // computed here, not sent by the API
 	HowToCapture    []string `json:"how_to_capture"`
 	Notes           string   `json:"notes"`
 }
 
-// UnmarshalJSON aceita "notes": null e how_to_capture ausente.
+// UnmarshalJSON accepts "notes": null and a missing how_to_capture.
 func (p *Packet) UnmarshalJSON(b []byte) error {
 	type plain Packet
 	aux := struct {
@@ -52,19 +52,19 @@ func (p *Packet) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-// Activity agrupa os pacotes de uma atividade do jogo.
+// Activity groups the packets of one game activity.
 type Activity struct {
 	Activity string   `json:"activity"`
 	Packets  []Packet `json:"packets"`
 }
 
-// Catalog é a resposta inteira.
+// Catalog is the whole response.
 type Catalog struct {
 	GeneratedAt string     `json:"generated_at"`
 	Activities  []Activity `json:"activities"`
 }
 
-// ConfidenceLabel é o rótulo de certeza que a tela mostra.
+// ConfidenceLabel is the confidence label the screen shows.
 func ConfidenceLabel(c string) string {
 	switch c {
 	case "known":
@@ -78,9 +78,9 @@ func ConfidenceLabel(c string) string {
 	}
 }
 
-// Parse lê o JSON de /api/needed. Atividade "Developer-only" é descartada
-// (comando de teste que o jogo normal não manda: não há o que gravar), assim
-// como atividade sem pacotes.
+// Parse reads the /api/needed JSON. The "Developer-only" activity is dropped
+// (a test command the normal game never sends, so there is nothing to record),
+// and so is any activity without packets.
 func Parse(r io.Reader) (*Catalog, error) {
 	var c Catalog
 	if err := json.NewDecoder(io.LimitReader(r, maxBody)).Decode(&c); err != nil {
@@ -97,8 +97,8 @@ func Parse(r io.Reader) (*Catalog, error) {
 	return &c, nil
 }
 
-// Fetch baixa e lê a lista. Qualquer falha (rede, status, JSON) volta como erro;
-// quem chama trata como "offline".
+// Fetch downloads and reads the list. Any failure (network, status, JSON) comes back
+// as an error; the caller treats it as "offline".
 func Fetch(ctx context.Context, client *http.Client, url, userAgent string) (*Catalog, error) {
 	if client == nil {
 		client = &http.Client{Timeout: 8 * time.Second}

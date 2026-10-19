@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sync"
 	"time"
@@ -33,6 +32,8 @@ type App struct {
 	set   config.Settings
 	hk    *hotkey.Listener
 	hkErr string
+
+	vid videoState
 }
 
 func NewApp(set config.Settings) *App {
@@ -46,10 +47,26 @@ func (a *App) startup(ctx context.Context) {
 	rootDir := a.appDir()
 	a.cap = capture.New(rootDir,
 		func(line string) { a.emit("caplog", line) },
-		func(st capture.Status) { a.emit("capstatus", string(st)) },
+		func(st capture.Status) {
+			a.emit("capstatus", string(st))
+			if st == capture.StatusDone || st == capture.StatusError {
+				// Off the capture's own goroutine: stopping a clip waits for
+				// the recorder to finish writing.
+				go a.onCaptureEnded()
+			}
+		},
 	)
+	a.probeVideo()
 	a.mu.Lock()
+	if a.set.ExePath == "" {
+		if p := detectGameExe(); p != "" {
+			a.set.ExePath = p
+			a.saveLocked()
+			a.emit("caplog", "Found the game automatically: "+p)
+		}
+	}
 	a.registerLocked()
+	a.registerVideoLocked()
 	a.mu.Unlock()
 
 	if !a.cap.IsEnvInstalled() {
@@ -64,10 +81,14 @@ func (a *App) startup(ctx context.Context) {
 }
 
 func (a *App) shutdown(ctx context.Context) {
+	if st := a.j.State(); st.Phase == journal.PhaseRunning {
+		a.finishVideo(journal.SessionDir(a.outputDir(), st.Name))
+	}
 	a.cap.StopCapture()
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.unregisterLocked()
+	a.unregisterVideoLocked()
 }
 
 func (a *App) emit(name string, data ...any) {
@@ -95,15 +116,19 @@ type Boot struct {
 	HotkeyError string            `json:"hotkey_error"`
 	EnvReady    bool              `json:"env_ready"`
 	AppDir      string            `json:"app_dir"`
+	Platform    string            `json:"platform"`
+	Video       VideoStatus       `json:"video"`
 }
 
 func (a *App) Boot() Boot {
+	vs := a.VideoState() // takes the locks itself, so before a.mu below
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return Boot{
 		Version: journal.Version, Settings: a.set, Activities: journal.Activities,
 		Draft: a.j.CheckDraft(), State: a.j.State(), HotkeyError: a.hkErr,
-		EnvReady: a.cap.IsEnvInstalled(), AppDir: a.appDir(),
+		EnvReady: a.cap.IsEnvInstalled(), AppDir: a.appDir(), Platform: platformName,
+		Video: vs,
 	}
 }
 
@@ -138,6 +163,7 @@ func (a *App) StartSession(exePath, name, activity string, timeout int, onePerEP
 		a.cap.StopCapture()
 		return journal.State{}, err
 	}
+	a.resetVideo()
 
 	return st, nil
 }
@@ -148,15 +174,21 @@ type StopResult struct {
 	ExportError string        `json:"export_error"`
 	SendDir     string        `json:"send_dir"`
 	SizeWarning string        `json:"size_warning"`
+	VideoClips  int           `json:"video_clips"`
+	VideoError  string        `json:"video_error"`
 }
 
 func (a *App) StopSession() (StopResult, error) {
+	clips, videoErr := a.finishVideo(journal.SessionDir(a.outputDir(), a.j.State().Name))
 	a.cap.StopCapture()
 
 	if _, err := a.j.Stop(); err != nil {
 		return StopResult{}, err
 	}
-	res := StopResult{}
+	res := StopResult{VideoClips: clips}
+	if videoErr != nil {
+		res.VideoError = videoErr.Error()
+	}
 	if dir, err := a.j.Export(a.outputDir()); err != nil {
 		res.ExportError = err.Error()
 	} else {
@@ -238,7 +270,7 @@ func (a *App) OpenFolder() error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	return exec.Command("explorer.exe", dir).Start()
+	return openPath(dir)
 }
 
 // ---- capture extras ---------------------------------------------------------
@@ -260,7 +292,7 @@ func (a *App) OpenSendDir() error {
 	if _, err := os.Stat(sendDir); err != nil {
 		return fmt.Errorf("send folder not found — stop a session first")
 	}
-	return exec.Command("explorer.exe", sendDir).Start()
+	return openPath(sendDir)
 }
 
 func copyFile(src, dst string) error {
@@ -388,16 +420,20 @@ func (a *App) onHotkey(at time.Time) {
 	a.emit("marked", "hotkey")
 }
 
+// BeginHotkeyCapture stops both hotkeys while the player presses a new
+// combination, so the keys being tried do not mark or toggle video.
 func (a *App) BeginHotkeyCapture() {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.unregisterLocked()
+	a.unregisterVideoLocked()
 }
 
 func (a *App) EndHotkeyCapture() HotkeyStatus {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.registerLocked()
+	a.registerVideoLocked()
 	return a.hotkeyStatusLocked()
 }
 
@@ -405,6 +441,12 @@ func (a *App) SetHotkey(spec string) (HotkeyStatus, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	sp, err := hotkey.Parse(spec)
+	if err == nil && a.set.VideoAllowed {
+		if v, verr := hotkey.Parse(a.set.VideoHotkey); verr == nil && v == sp {
+			err = fmt.Errorf("%s is already the video hotkey", sp)
+		}
+	}
+	defer a.registerVideoLocked() // BeginHotkeyCapture stopped it too
 	if err == nil {
 		a.unregisterLocked()
 		var l *hotkey.Listener

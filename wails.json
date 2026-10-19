@@ -11,10 +11,10 @@
     "email": "130147591+KyzaBOY@users.noreply.github.com"
   },
   "info": {
-    "companyName": "Azoth (projeto fan de preservação)",
+    "companyName": "Azoth (fan preservation project)",
     "productName": "Azoth Capture",
     "productVersion": "0.2.0",
-    "copyright": "© tempesTT. New World é marca da Amazon Games; este projeto não tem relação com a Amazon.",
-    "comments": "Captura de pacotes + diário de passos para o Projeto Azoth. Usa ferramentas do Aeternum-World por Coldzer0."
+    "copyright": "© tempesTT. New World is a trademark of Amazon Games; this project is not affiliated with Amazon.",
+    "comments": "Packet capture + step journal for the Azoth project. Uses Aeternum-World tools by Coldzer0."
   }
 }

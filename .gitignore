@@ -1,3 +1,4 @@
 build/bin/
 *.exe
 *.exe~
+__pycache__/

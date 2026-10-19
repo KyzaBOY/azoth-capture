@@ -1,3 +1,38 @@
+## Unreleased: Linux support
+
+The app now builds and runs on Linux as well as Windows, from one code base.
+The output is the same: `ledger.bin` and `steps.json`.
+
+- On Linux you start the game the normal way through Steam, so Easy Anti-Cheat
+  stays on. The capture attaches to the running game under Proton instead of
+  launching it without the anti-cheat. In testing, a 14-minute session stayed
+  on one connection the whole time, with none of the Windows kicks.
+- The app attaches through a Windows Frida server running inside the game's
+  Proton prefix. It never uses a native Linux attach, which terminates the game.
+- It finds the game, the Proton version and the Steam Linux Runtime by reading
+  Steam's own files, so nothing is hard coded. Use whichever Proton version runs
+  the game on your system.
+- Before it places any hook, it checks that the code at each hook site in the
+  game's memory matches the executable file, and hooks nothing if it doesn't.
+- It records only the DTLS ledger and leaves out the upstream HTTPS script,
+  which swaps a game callback pointer that would be left dangling once the
+  capture stops while the game keeps running.
+- The Linux installer verifies the Frida server download by SHA-256 and keeps
+  the Windows installer's pinned capture-engine commit and its refusal to run
+  as root.
+- The F8 key reads the keyboard from the kernel and needs the `input` group;
+  `docs/LINUX.md` explains what that allows. The Mark button works without it.
+- Optional video of the game window, off by default. Once it is turned on, a
+  Start video button or F9 starts and stops clips while the capture runs, and a
+  clip stops whenever the capture ends. It uses GPU Screen Recorder, records the
+  window the player picks once in the desktop's share dialog (or a monitor they
+  choose where that dialog doesn't exist), and records only the game's own
+  sound, never a microphone. Each clip comes with a `video.json` holding its
+  first-frame time on the ledger's clock. Video stays in the session folder and
+  never goes into `send`.
+- Setup and building are in `docs/LINUX.md`, and the tutorial has a new
+  "Playing on Linux" section.
+
 ## Azoth Capture 0.2.0
 
 **Adapts the capture to New World build 1.460.6033.6024067.**

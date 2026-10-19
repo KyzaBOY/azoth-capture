@@ -28,6 +28,12 @@ import (
 // (BASE_IDA in _common.js). Addresses returned by Find are relative to it.
 const imageBase = 0x140000000
 
+// Build identifies one game executable, for the activity log and bug reports.
+type Build struct {
+	Version string // e.g. 1.460.6033.6024067 (file version resource; "unknown" on Linux)
+	SHA256  string
+}
+
 // Addrs are the virtual addresses (at imageBase) of the hooked functions.
 type Addrs struct {
 	SSLRead  uint64
@@ -146,26 +152,91 @@ func resolve(text []byte, textVA uint64) (Addrs, error) {
 // an error, and the caller must NOT launch the game with hooks, if the build is
 // not one we can place the hooks in with certainty.
 func Find(exePath string) (Addrs, error) {
+	text, textVA, err := readText(exePath)
+	if err != nil {
+		return Addrs{}, err
+	}
+	return resolve(text, textVA)
+}
+
+// PrologueLen is how many bytes at the start of each hooked function are
+// compared with the running game's memory before any hook is placed. It equals
+// what the agent's nwHexdump reads, so the two sides compare like with like.
+const PrologueLen = 16
+
+// Prologues are the first PrologueLen bytes of each hooked function as stored
+// in the executable file, written the way the agent's nwHexdump writes them
+// ("B8 38 00 ..."): upper-case hex pairs separated by spaces.
+type Prologues struct {
+	SSLRead  string
+	SSLWrite string
+	Keylog   string
+}
+
+// ReadPrologues reads the file bytes at the resolved hook addresses. When the
+// capture attaches to a game that is already running, these let the agent
+// check that the code in memory is the code we scanned, and refuse to hook if
+// it is not, instead of crashing the game.
+func ReadPrologues(exePath string, a Addrs) (Prologues, error) {
+	text, textVA, err := readText(exePath)
+	if err != nil {
+		return Prologues{}, err
+	}
+	var p Prologues
+	for _, site := range []struct {
+		name string
+		va   uint64
+		dst  *string
+	}{
+		{"SSL_read", a.SSLRead, &p.SSLRead},
+		{"SSL_write", a.SSLWrite, &p.SSLWrite},
+		{"nss_keylog_int", a.Keylog, &p.Keylog},
+	} {
+		if *site.dst, err = prologue(text, textVA, site.va); err != nil {
+			return Prologues{}, fmt.Errorf("%s: %w", site.name, err)
+		}
+	}
+	return p, nil
+}
+
+// prologue formats the PrologueLen bytes at virtual address va of a code
+// section that starts at textVA.
+func prologue(text []byte, textVA, va uint64) (string, error) {
+	if va < textVA || va-textVA+PrologueLen > uint64(len(text)) {
+		return "", fmt.Errorf("address 0x%X is outside the code section", va)
+	}
+	off := va - textVA
+	hexBytes := make([]string, PrologueLen)
+	for i, b := range text[off : off+PrologueLen] {
+		hexBytes[i] = fmt.Sprintf("%02X", b)
+	}
+	return strings.Join(hexBytes, " "), nil
+}
+
+// readText returns the .text section of a 64-bit game executable and the
+// virtual address it starts at, after checking the image base the capture
+// agent assumes.
+func readText(exePath string) (text []byte, textVA uint64, err error) {
 	f, err := pe.Open(exePath)
 	if err != nil {
-		return Addrs{}, fmt.Errorf("not a readable Windows executable: %w", err)
+		return nil, 0, fmt.Errorf("not a readable Windows executable: %w", err)
 	}
 	defer f.Close()
 
 	oh, ok := f.OptionalHeader.(*pe.OptionalHeader64)
 	if !ok {
-		return Addrs{}, errors.New("not a 64-bit executable")
+		return nil, 0, errors.New("not a 64-bit executable")
 	}
 	if oh.ImageBase != imageBase {
-		return Addrs{}, fmt.Errorf("unexpected image base 0x%X (the capture agent assumes 0x%X)", oh.ImageBase, uint64(imageBase))
+		return nil, 0, fmt.Errorf("unexpected image base 0x%X (the capture agent assumes 0x%X)", oh.ImageBase, uint64(imageBase))
 	}
 	sec := f.Section(".text")
 	if sec == nil {
-		return Addrs{}, errors.New("no .text section")
+		return nil, 0, errors.New("no .text section")
 	}
-	text, err := sec.Data()
+	text, err = sec.Data()
 	if err != nil {
-		return Addrs{}, fmt.Errorf("reading .text: %w", err)
+		return nil, 0, fmt.Errorf("reading .text: %w", err)
 	}
-	return resolve(text, uint64(oh.ImageBase)+uint64(sec.VirtualAddress))
+	return text, uint64(oh.ImageBase) + uint64(sec.VirtualAddress), nil
 }

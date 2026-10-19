@@ -25,7 +25,7 @@ const (
 	wmQuit        = 0x0012
 	wmUser        = 0x0400
 	pmNoRemove    = 0x0000
-	modNoRepeat   = 0x4000 // segurar a tecla não repete o atalho
+	modNoRepeat   = 0x4000 // holding the key does not repeat the shortcut
 	errHotkeyBusy = 1409   // ERROR_HOTKEY_ALREADY_REGISTERED
 )
 
@@ -40,18 +40,18 @@ type msg struct {
 	Pt      point
 }
 
-// Listener é um atalho registrado, com a thread de mensagens própria dele
-// (RegisterHotKey liga o atalho à thread que o registrou, e a fila dessa
-// thread precisa de um loop de GetMessage).
+// Listener is a registered shortcut with its own message thread (RegisterHotKey
+// ties the shortcut to the thread that registered it, and that thread's queue
+// needs a GetMessage loop).
 type Listener struct {
 	tid  uint32
 	done chan struct{}
 	once sync.Once
 }
 
-// Register registra o atalho e chama onPress(instante) a cada aperto. O instante
-// é tomado na própria thread de mensagens, antes de qualquer outro trabalho.
-// onPress roda nessa thread: tem que ser rápido e não pode chamar Close.
+// Register registers the shortcut and calls onPress(moment) on each press. The
+// moment is taken on the message thread itself, before any other work. onPress
+// runs on that thread: it must be quick and must not call Close.
 func Register(spec Spec, onPress func(at time.Time)) (*Listener, error) {
 	type ready struct {
 		tid uint32
@@ -67,7 +67,7 @@ func Register(spec Spec, onPress func(at time.Time)) (*Listener, error) {
 
 		tid := windows.GetCurrentThreadId()
 		var m msg
-		// força a criação da fila de mensagens da thread antes de avisar que está pronta
+		// force the thread's message queue to exist before signalling ready
 		procPeekMessageW.Call(uintptr(unsafe.Pointer(&m)), 0, wmUser, wmUser, pmNoRemove)
 
 		r, _, e := procRegisterHotKey.Call(0, 1, uintptr(spec.Mods|modNoRepeat), uintptr(spec.VK))
@@ -84,7 +84,7 @@ func Register(spec Spec, onPress func(at time.Time)) (*Listener, error) {
 
 		for {
 			r, _, _ := procGetMessageW.Call(uintptr(unsafe.Pointer(&m)), 0, 0, 0)
-			if int32(r) <= 0 { // WM_QUIT (0) ou erro (-1)
+			if int32(r) <= 0 { // WM_QUIT (0) or error (-1)
 				return
 			}
 			if m.Message == wmHotkey {
@@ -102,7 +102,7 @@ func Register(spec Spec, onPress func(at time.Time)) (*Listener, error) {
 	return l, nil
 }
 
-// Close desfaz o atalho e encerra a thread. Pode ser chamado mais de uma vez.
+// Close removes the shortcut and ends the thread. It is safe to call more than once.
 func (l *Listener) Close() error {
 	var err error
 	l.once.Do(func() {

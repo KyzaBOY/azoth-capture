@@ -11,12 +11,6 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// Build identifies one game executable, for the activity log and bug reports.
-type Build struct {
-	Version string // e.g. 1.460.6033.6024067 (file version resource)
-	SHA256  string
-}
-
 // Identify reads the file version and the SHA-256 of the game executable.
 func Identify(exePath string) (Build, error) {
 	var b Build
