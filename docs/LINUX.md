@@ -56,6 +56,11 @@ machine to machine: one system runs it on Proton 11, another only on GE-Proton
 10. The app reads the version the game is set to use from Steam and uses that
 same one. Steam installs the Steam Linux Runtime it needs along with Proton.
 
+The release binary, `AzothCapture-linux-amd64`, is x86-64 and uses GTK 3 and
+WebKitGTK 4.1 for its window. Most desktops already have them; if it won't
+start, install `libwebkit2gtk-4.1-0` (Debian, Ubuntu), `webkit2gtk-4.1` (Arch)
+or `webkit2gtk4.1` (Fedora).
+
 You also need `python3` with `venv`, `git`, `curl`, `xz` and `sha256sum`.
 Almost every distribution has them, and the app tells you if one is missing.
 On Debian and Ubuntu, `venv` comes in the separate `python3-venv` package.

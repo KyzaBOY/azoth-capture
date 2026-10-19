@@ -21,7 +21,7 @@ import (
 // App version, written into steps.json ("azoth-capture 0.1.0").
 const (
 	AppName = "azoth-capture"
-	Version = "0.2.0"
+	Version = "0.3.0"
 )
 
 // What produced the step.

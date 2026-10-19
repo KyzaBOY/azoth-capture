@@ -13,7 +13,7 @@
   "info": {
     "companyName": "Azoth (fan preservation project)",
     "productName": "Azoth Capture",
-    "productVersion": "0.2.0",
+    "productVersion": "0.3.0",
     "copyright": "© tempesTT. New World is a trademark of Amazon Games; this project is not affiliated with Amazon.",
     "comments": "Packet capture + step journal for the Azoth project. Uses Aeternum-World tools by Coldzer0."
   }
