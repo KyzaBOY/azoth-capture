@@ -1,7 +1,21 @@
-## Unreleased: Linux support
+## Azoth Capture 0.3.0: Linux support
 
 The app now builds and runs on Linux as well as Windows, from one code base.
-The output is the same: `ledger.bin` and `steps.json`.
+The output is the same: `ledger.bin` and `steps.json`. Contributed by
+[@PikkonMG](https://github.com/PikkonMG) in #2.
+
+Download `AzothCapture-linux-amd64` for Linux (setup in `docs/LINUX.md`) or
+`AzothCapture.exe` for Windows. Check either one against `SHA256SUMS-linux.txt`
+/ `SHA256SUMS.txt`, or with `gh attestation verify <file> --repo KyzaBOY/azoth-capture`.
+
+**Windows:** nothing new to use. The capture code was split per platform and
+Stop now waits for the ledger to finish writing, but this build has not had a
+live Windows capture yet. If 0.3.0 gives you trouble on Windows, 0.2.0 keeps
+working on game build 1.460.6033.6024067; please open an issue.
+
+**Status on Linux:** a live 14-minute session under GE-Proton 10-12 (KDE Plasma,
+Wayland) stayed on one connection and decoded with the upstream
+`decode_dtls_ledger.py` without errors.
 
 - On Linux you start the game the normal way through Steam, so Easy Anti-Cheat
   stays on. The capture attaches to the running game under Proton instead of

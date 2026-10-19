@@ -65,7 +65,7 @@ instead of "trust me". Everything below comes from this source; check it.
 **What it sends out:** one request, `GET https://projectazoth.com/api/needed`,
 to show which captures the community still needs. No body, no cookies, no
 account or machine identifiers, no telemetry; like any web request, the server
-sees your IP address and the app name and version (`azoth-capture/0.2.0`). The upstream scripts it runs (`nw_capture.py`, `_runner.py`,
+sees your IP address and the app name and version (`azoth-capture/0.3.0`). The upstream scripts it runs (`nw_capture.py`, `_runner.py`,
 `extract_https_pairs.py` and the Frida agents) import no networking code; read
 them at the pinned commit. Your files only leave your PC if *you* post them.
 

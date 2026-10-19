@@ -318,9 +318,12 @@ Setup details, building and how it works inside are in
 
 ### Quick start on Linux
 
-1. **Put the app in a folder of its own.** It sets up its tools next to
-   itself on first start. Until there is a Linux release, build it yourself
-   (see [Building](docs/LINUX.md#building)).
+1. **Download `AzothCapture-linux-amd64`** from the
+   [Releases page](https://github.com/KyzaBOY/azoth-capture/releases) (or
+   [projectazoth.com](https://projectazoth.com)) and put it in a folder of its
+   own. It sets up its tools next to itself on first start. Make it runnable
+   with `chmod +x AzothCapture-linux-amd64`. To build it yourself instead, see
+   [Building](docs/LINUX.md#building).
 
 2. **Start New World through Steam** and get into the world. Use whatever
    Proton version runs the game on your PC. The app finds the game, your
