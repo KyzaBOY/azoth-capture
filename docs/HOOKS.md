@@ -27,9 +27,15 @@ message to explain it.
    function changed or is ambiguous, and the app stops with a clear message
    *before launching anything*.
 3. It writes a copy of `_dtls_ledger.js` with the address table replaced
-   (`internal/capture/agent.go`) and starts the upstream runner through
-   `azoth_run.py`, which points the runner at that copy. The upstream checkout
-   is never modified.
+   (`internal/capture/agent.go`) and starts the capture pointed at that copy.
+   On Windows, `azoth_run.py` starts the upstream runner, which spawns the
+   game. On Linux, `azoth_attach.py` attaches to the game that is already
+   running and loads the same patched copy. Since that game is already
+   running, it first compares the first 16 bytes of each hook site in memory
+   with the bytes in the file (`hooks.ReadPrologues`) and places no hook if any
+   of them differ. The upstream checkout is never modified on either platform,
+   and the signature scan above is shared code (`internal/hooks`, pure
+   `debug/pe`), so both place the hooks the same way.
 
 `SSL_read` and `SSL_write` start with the same 18 bytes; they are told apart by
 the error-code constants a few instructions later (a unit test guards this).

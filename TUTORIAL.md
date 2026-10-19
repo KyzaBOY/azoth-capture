@@ -17,6 +17,10 @@ by Coldzer0, with a built-in **journal** that timestamps your actions so we
 know exactly what happened at each moment in the capture. No video recording
 needed — just press a button.
 
+> **On Linux?** The app runs there too, and you launch the game the normal
+> way through Steam with the anti-cheat on. The steps below are for Windows.
+> Jump to [Playing on Linux](#playing-on-linux) instead.
+
 ---
 
 ## Quick start (under 2 minutes to learn)
@@ -297,6 +301,106 @@ fishing session with journal annotations is more valuable than nothing.
 
 The **Missions** panel shows what is still missing. Any action it lists
 that you record is a first.
+
+---
+
+## Playing on Linux
+
+The app runs on Linux too, and it works a bit differently there. You start
+New World the normal way through Steam, with Easy Anti-Cheat on, and the app
+attaches to the game while you play. It doesn't launch the game without EAC
+like the Windows version does. In testing, a 14-minute session stayed on one
+connection the whole time, without the kicks every 2 to 3 minutes. The ban
+note above still applies.
+
+Setup details, building and how it works inside are in
+[docs/LINUX.md](docs/LINUX.md). This part covers using it.
+
+### Quick start on Linux
+
+1. **Put the app in a folder of its own.** It sets up its tools next to
+   itself on first start. Until there is a Linux release, build it yourself
+   (see [Building](docs/LINUX.md#building)).
+
+2. **Start New World through Steam** and get into the world. Use whatever
+   Proton version runs the game on your PC. The app finds the game, your
+   Proton and the Steam Linux Runtime by itself, so you don't type any paths.
+
+3. **Open the app.** The game path fills itself in. If it can't find the
+   game, click **Browse** and pick `NewWorld.exe` in the game's `Bin64`
+   folder. The first time, it installs its capture tools (a few minutes,
+   progress in the Activity Log).
+
+4. **Pick a session name and an activity, then click Start Session.** Watch
+   the Activity Log for `hook sites match the game in memory`. That line means
+   the capture is armed. If the game isn't running yet, the app asks Steam to
+   start it and waits up to 2 minutes.
+
+5. **Play and mark your actions** with **Mark** or **F8**, same as on Windows.
+
+6. **Click Stop Session when you're done.** The game keeps running. Only the
+   recording stops.
+
+7. **Post the two files in the `send` folder**: `ledger.bin` and
+   `steps.json`. Share nothing else from the capture folder, the same as on
+   Windows.
+
+### What's different on Linux
+
+- **Timeout** stops the recording after that many seconds. It doesn't close
+  the game.
+- **One per endpoint** is hidden. The Linux capture only writes
+  `ledger.bin`, so that option has nothing to filter.
+- **The F8 key** needs permission to read the keyboard (the `input` group).
+  Read [what that allows](docs/LINUX.md#the-f8-mark-key) before you turn it
+  on. Without it, the **Mark** button works fine.
+- **`ledger.bin` stays at 0 bytes on menus** like login, character select or
+  character creation. That's normal: it fills up once you're in the world.
+
+### Video (optional, Linux only)
+
+The app can record video of the game window next to your capture. It's off
+until you turn it on, and it never records on its own.
+
+1. Install GPU Screen Recorder (`sudo apt install gpu-screen-recorder` on
+   Debian and Ubuntu based systems, or from Flathub).
+2. In **Settings**, turn **Video** on. With the game open, click **Pick
+   window** and choose the New World window in the dialog that pops up. You
+   only do this once.
+3. During a session, click **Start video** or press **F9** to start a clip,
+   and again to stop it.
+
+Clips land in your session folder as `gameplay-001.mkv` and so on, plus a
+`video.json` with the exact start times so we can line a clip up with the
+packets. Video never goes in the `send` folder, since it can show your name
+and chat. It records the game's own sound and never your microphone. Stopping
+the session also stops a clip that's still running. More details are in
+[docs/LINUX.md](docs/LINUX.md#video-optional-off-by-default).
+
+### Linux troubleshooting
+
+Start with the Activity Log. It shows what the app found (Steam, Proton,
+runtime, the game's prefix) and which step failed.
+
+**`hook sites do not match this game in memory ... nothing was hooked`**
+The game in memory isn't the build the app scanned, for example because it
+updated while running. Nothing was changed in the game. Restart the game and
+try again. If it keeps happening, send us the Activity Log.
+
+**`Port 127.0.0.1:27943 is already in use`**
+Another capture tool is running. Close it and click Start again.
+
+**`The capture server did not become ready`**
+Its own output is in `Aeternum-World/Tools/nw_capture/logs/frida-server.log`,
+next to the app. Send that along with the Activity Log.
+
+**F8 does nothing**
+The app couldn't read the keyboard. Use the **Mark** button, or see
+[the F8 mark key](docs/LINUX.md#the-f8-mark-key).
+
+**Where things are on Linux:** settings in `~/.config/AzothCapture/`, your
+sessions in `~/Documents/Azoth Captures/`, and the capture tools next to the
+app.
 
 ---
 

@@ -11,6 +11,27 @@ what you are about to run.
 > How to *use* it: [TUTORIAL.md](TUTORIAL.md).
 > Not affiliated with Amazon. No Amazon code or assets are in here.
 
+## Windows and Linux
+
+The app runs on Windows and Linux from one code base, and both produce the same
+two files, `ledger.bin` and `steps.json`.
+
+On Windows it starts the game with Easy Anti-Cheat (EAC) switched off, because
+that is the only way to read the data there. The server then disconnects you
+every 2 to 3 minutes, and the capture keeps recording across the reconnects.
+
+On Linux you start the game the normal way through Steam, so EAC stays on, and
+the app attaches to the running game under Proton. In testing, a 14-minute
+session stayed on one connection the whole time. The app finds the game, your
+Proton version and the Steam Linux Runtime by asking Steam, so it works on any
+distribution and any library folder. The Linux build can also record video of
+the game window. That is off by default, you start each clip yourself, and
+video stays on your PC instead of going into `send`.
+
+The rest of this README describes the Windows build. For Linux, see
+[Playing on Linux](TUTORIAL.md#playing-on-linux) in the tutorial and
+[docs/LINUX.md](docs/LINUX.md).
+
 ## Is this a virus?
 
 Fair question: it downloads things, it launches your game without its
