@@ -3,27 +3,37 @@ package capture
 import (
 	"bufio"
 	"context"
+	"io"
 	"os/exec"
 )
 
 // streamCommand starts cmd, sends every output line to the log, and waits for
 // it to finish. Standard error is merged into standard output.
+//
+// Read through an io.Pipe, not StdoutPipe. On Windows the game inherits
+// Python's stdout and keeps it open after Stop kills Python. WaitDelay
+// can only close pipes it copies itself.
 func (r *Runner) streamCommand(cmd *exec.Cmd) error {
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return err
-	}
-	cmd.Stderr = cmd.Stdout
+	pr, pw := io.Pipe()
+	cmd.Stdout = pw
+	cmd.Stderr = pw
 	if err := cmd.Start(); err != nil {
 		return err
 	}
-	scanner := bufio.NewScanner(stdout)
-	buf := make([]byte, 0, 256*1024)
-	scanner.Buffer(buf, 1024*1024)
-	for scanner.Scan() {
-		r.log(scanner.Text())
-	}
-	return cmd.Wait()
+	logged := make(chan struct{})
+	go func() {
+		defer close(logged)
+		scanner := bufio.NewScanner(pr)
+		buf := make([]byte, 0, 256*1024)
+		scanner.Buffer(buf, 1024*1024)
+		for scanner.Scan() {
+			r.log(scanner.Text())
+		}
+	}()
+	err := cmd.Wait()
+	pw.Close()
+	<-logged
+	return err
 }
 
 // runCaptureCommand runs the capture process, streams its log, and reports the

@@ -18,6 +18,9 @@ var runShim []byte
 const (
 	installerName = "install_env.bat"
 	shimName      = "azoth_run.py"
+
+	// The game keeps Python's stdout open after Python dies.
+	outputDrainWait = 2 * time.Second
 )
 
 func (r *Runner) pythonExe() string {
@@ -50,6 +53,7 @@ func (r *Runner) startEngine(ctx context.Context, exePath, session string, timeo
 
 	cmd := exec.CommandContext(ctx, r.pythonExe(), args...)
 	cmd.Dir = r.rootDir
+	cmd.WaitDelay = outputDrainWait
 	r.runCaptureCommand(ctx, cmd)
 }
 
