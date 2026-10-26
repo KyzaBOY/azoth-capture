@@ -11,6 +11,11 @@
   let hotkeyErr = "";
   let platform = "";
   let video = null; // VideoStatus from the app; null until Boot
+  let ai = null; // AIStatus from the app; null until Boot
+  let aiModels = []; // ModelInfo list from the last "Load list"
+  let aiFormDirty = false; // the player is editing the AI form
+  const aiRows = new Map();
+  const aiThumbs = new Map();
 
 
   let catalog = null;
@@ -71,8 +76,14 @@
   const clockEl = $("clock"), elapsedEl = $("elapsed");
   const clockMain = document.createTextNode("00:00:00"), clockMs = h("span", { class: "ms", text: ".000" });
   clockEl.replaceChildren(clockMain, clockMs);
+  // The clock redraws 20 times a second, not on every frame: each redraw
+  // repaints the panel, and that made the whole window feel slow.
+  const CLOCK_STEP_MS = 50;
+  let lastTick = 0;
   function tick() {
     const now = Date.now();
+    if (now - lastTick < CLOCK_STEP_MS) { requestAnimationFrame(tick); return; }
+    lastTick = now;
     const [hms, ms] = clockParts(now);
     if (clockMain.nodeValue !== hms) clockMain.nodeValue = hms;
     clockMs.textContent = "." + ms;
@@ -92,6 +103,7 @@
 
     $("btn-mark").disabled = !running;
     $("btn-start").hidden = running || starting;
+    $("btn-open-session").hidden = running || starting;
     $("btn-stop").hidden = !running && !starting;
     $("setup").hidden = stopped;
     $("done").hidden = !stopped;
@@ -107,6 +119,7 @@
     setFieldsLocked(running || starting);
     renderSteps();
     paintVideo();
+    paintAI();
     renderCards();
     renderPackets();
 
@@ -239,6 +252,9 @@
   async function doNew() {
     rows.clear();
     nameTouched = false;
+    $("split-result").hidden = true;
+    $("btn-parts").hidden = true;
+    paintUpload(null);
     render(await api.NewSession());
     suggest();
   }
@@ -444,7 +460,7 @@
   function captureHotkey(btnId, valId, set, apply) {
     if (capturing) return;
     capturing = true;
-    const btn = $(btnId), err = $("s-err");
+    const btn = $(btnId), err = btn.closest(".kv").querySelector(".err"); // the error line of this key's tab
     err.hidden = true;
     btn.textContent = "Press keys…";
     $(valId).textContent = "Press the new combination (Esc cancels)";
@@ -479,37 +495,41 @@
     window.addEventListener("keydown", onKey, true);
   }
 
-  // ---- video (opt-in, Linux only) -----------------------------------------------
+  // ---- video (opt-in; Linux and Windows) ------------------------------------------
   function paintVideo() {
-    const linux = platform === "linux" && !!video;
+    const has = !!video;
     const show = (sel, on) => document.querySelectorAll(sel).forEach((el) => { el.hidden = !on; });
-    const ready = linux && video.info.available;
+    const ready = has && video.info.available;
     const allowed = ready && video.allowed;
     const win = ready && video.info.window_capture;
-    show(".video-row", linux);
+    show(".video-row", has);
     show(".video-opt", allowed);
     show(".video-mon", allowed && !win);
-    show(".video-win", allowed && win);
+    show(".video-win", allowed && video.info.needs_pick);
+    show(".video-sound", allowed && video.info.sound);
     $("btn-video").hidden = !allowed;
     $("video-hint").hidden = !allowed;
-    if (!linux) return;
+    if (!has) return;
 
     const note = $("s-video-note"), allowBtn = $("btn-video-allow");
     note.hidden = false;
+    allowBtn.disabled = false;
     if (!ready) {
       $("s-video").textContent = "Not available";
-      allowBtn.textContent = "Check again";
-      note.textContent = video.info.reason;
+      allowBtn.textContent = video.info.can_install ? "Install" : "Check again";
+      note.textContent = video.error ? "Video: " + video.error : video.info.reason;
       return;
     }
     $("s-video").textContent = !video.allowed ? "Off" : video.recording ? "On, recording" : "On";
     allowBtn.textContent = video.allowed ? "Turn off" : "Turn on";
     const problem = video.error || video.hotkey_error;
     note.textContent = problem ? "Video: " + problem
-      : !video.allowed ? "Off by default. When on, you start and stop each clip yourself."
-      : win && !video.window_picked ? "With New World open, press Pick window and choose the New World window. You do this once."
+      : !video.allowed ? "Off by default. When on, a clip starts with each session; the video key stops and starts it."
+      : video.info.needs_pick && !video.window_picked ? "With New World open, press Pick window and choose the New World window. You do this once."
       : !win && !video.target ? "Choose the monitor New World is on."
-      : "Clips stay in the session folder on this PC, never in send. Sound is the game's own sound only; a microphone is never recorded." +
+      : "Clips stay in the session folder on this PC, never in send. " +
+        (video.info.sound ? "Sound is the game's own sound only; a microphone is never recorded."
+          : "Clips record the New World window, without sound.") +
         (video.clips ? ` ${video.clips} clip(s) this session.` : "");
 
     $("s-video-window").textContent = video.window_picked ? "Game window" : "Not picked yet";
@@ -521,6 +541,8 @@
     }
     sel.value = win ? "" : video.target;
     $("s-video-audio").value = video.audio;
+    $("s-video-codec").value = video.codec;
+    $("s-video-quality").value = video.quality;
     $("s-vhotkey").textContent = video.hotkey;
     $("vhk-label").textContent = video.hotkey;
 
@@ -532,6 +554,12 @@
 
   async function doVideoAllow() {
     try {
+      if (!video.info.available && video.info.can_install) {
+        $("btn-video-allow").disabled = true; // until the "video" event after the download
+        api.InstallVideo();
+        notice("Downloading ffmpeg; see the Activity Log.");
+        return;
+      }
       video = video.info.available ? await api.SetVideoAllowed(!video.allowed) : await api.RefreshVideo();
       paintVideo();
     } catch (e) { fail(e); }
@@ -547,6 +575,284 @@
 
   async function doToggleVideo() {
     try { video = await api.ToggleVideo(); paintVideo(); } catch (e) { fail(e); }
+  }
+
+  // ---- right column tabs ------------------------------------------------------------
+  // Missions, Settings and AI marks share the right column; one shows at a
+  // time. The choice is remembered on this PC.
+  const TAB_KEY = "azoth.rightTab";
+  function showTab(id) {
+    document.querySelectorAll(".tabs [data-tab]").forEach((b) => {
+      const on = b.dataset.tab === id;
+      b.setAttribute("aria-selected", on);
+      $(b.dataset.tab).classList.toggle("tab-off", !on);
+    });
+    try { localStorage.setItem(TAB_KEY, id); } catch (e) { /* storage blocked: the tab still works */ }
+  }
+  function wireTabs() {
+    document.querySelectorAll(".tabs [data-tab]").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
+    let saved = "missions";
+    try { saved = localStorage.getItem(TAB_KEY) || saved; } catch (e) { /* use the first tab */ }
+    showTab($(saved) ? saved : "missions");
+  }
+
+  // ---- upload zip -----------------------------------------------------------------
+  // paintUpload shows the zip the app made after Stop (and again after each
+  // change to steps.json), with anything the upload site would reject.
+  function paintUpload(up) {
+    const box = $("upload");
+    box.hidden = !up;
+    if (!up) return;
+    $("upload-path").textContent = up.error ? "Upload zip not made: " + up.error : "Upload zip: " + up.path;
+    $("btn-upload-open").hidden = !!up.error;
+    $("upload-problems").replaceChildren(...(up.problems || []).map((p) => h("div", { class: "bad", text: p })));
+  }
+
+  // ---- split by connection --------------------------------------------------------
+  async function doSplit() {
+    const box = $("split-result"), b = $("btn-split");
+    b.disabled = true;
+    try {
+      const res = await api.SplitSession();
+      box.replaceChildren(h("div", { text: res.parts.length + " parts, one per login, in " + res.dir }),
+        ...res.parts.map((p) => h("div", { class: p.problem ? "bad" : "" ,
+          text: "Part " + p.number + ": " + fmtClock(p.first_ms).slice(0, 8) + "–" + fmtClock(p.last_ms).slice(0, 8) +
+            ", " + p.steps + " step(s), " + (p.bytes / 1048576).toFixed(1) + " MB" + (p.problem ? " – " + p.problem : "") })));
+      $("btn-parts").hidden = false;
+    } catch (e) {
+      box.replaceChildren(h("div", { text: String((e && e.message) || e) }));
+      $("btn-parts").hidden = true;
+    } finally {
+      box.hidden = false;
+      b.disabled = false;
+    }
+  }
+
+  // ---- AI marks (opt-in, needs video) -------------------------------------------
+  const aiShow = (sel, on) => document.querySelectorAll(sel).forEach((el) => { el.hidden = !on; });
+
+  function aiForm() {
+    return Object.assign({}, ai.settings, {
+      connector: $("ai-connector").value,
+      cli: $("ai-cli").value,
+      base_url: $("ai-url").value.trim(),
+      api_key: $("ai-key").value.trim(),
+      model: $("ai-model-in").value.trim(),
+      effort: $("ai-effort").value.trim(),
+      data_source: $("ai-data").value,
+      sample_every: parseInt($("ai-every").value) || 0,
+    });
+  }
+
+  function fillAIForm() {
+    const s = ai.settings;
+    const cli = $("ai-cli");
+    if (cli.options.length !== ai.clis.length) cli.replaceChildren(...ai.clis.map((n) => h("option", { value: n, text: n })));
+    $("ai-connector").value = s.connector || "cli";
+    cli.value = s.cli || ai.clis[0];
+    $("ai-url").value = s.base_url;
+    $("ai-key").value = "";
+    $("ai-key").placeholder = ai.has_key ? "Saved. Type to replace it." : "Not needed for a local server";
+    paintModels(s.model, s.effort);
+    $("ai-data").value = s.data_source;
+    $("ai-every").value = s.sample_every;
+    $("ai-datadir").textContent = s.data_dir || "No folder picked";
+    $("ai-datadir").title = s.data_dir || "";
+  }
+
+  function paintAIFormParts() {
+    const c = $("ai-connector").value;
+    aiShow(".ai-cli", c === "cli");
+    aiShow(".ai-openai", c === "openai");
+    aiShow(".ai-key", c !== "cli");
+    aiShow(".ai-local", $("ai-data").value === "local");
+  }
+
+  function paintAI() {
+    // The panel and the review never depend on the recorder being found at
+    // this moment: settings and saved drafts work without it.
+    const ready = !!ai && !!video;
+    $("ai-panel").hidden = !ready;
+    $("tab-ai").hidden = !ready;
+    if (!ready && $("tab-ai").getAttribute("aria-selected") === "true") showTab("missions");
+    // Every stopped session gets the box, so AI marks can run on a session
+    // that never had a run (AI was off, or the session was recovered).
+    const stopped = S && S.phase === "stopped";
+    $("ai-review").hidden = !ready || !stopped;
+    if (!ready) return;
+
+    const s = ai.settings;
+    $("btn-ai-enable").textContent = s.enabled ? "Turn off" : "Turn on";
+    $("ai-note").textContent = !video.info.available ? "Video is not available right now (see the Video row), so new runs cannot start. Saved drafts can still be reviewed."
+      : !video.allowed ? "Turn on video first. AI marks read the session's video."
+      : s.enabled ? "On. After you stop a session, the model you picked reads the video and drafts marks for you to check."
+      : "Off. When on, a model you pick drafts marks from the video after each session. You check every draft.";
+    if (!aiFormDirty) fillAIForm();
+    paintAIFormParts();
+    $("ai-stats").replaceChildren(...(ai.stats || []).map((r) => {
+      const n = r.accepted + r.rejected;
+      return h("div", {}, h("span", { text: r.model }),
+        h("span", { text: (n ? Math.round(100 * r.accepted / n) + "% kept" : "-") + " (" + r.accepted + " of " + n + ")" }));
+    }));
+    if (ai.stats && ai.stats.length) $("ai-stats").prepend(h("div", {}, h("b", { text: "Hit rate per model" })));
+
+    $("btn-ai-run").hidden = ai.running;
+    $("btn-ai-run").textContent = ai.result ? "Run again" : "Run AI marks";
+    $("btn-ai-cancel").hidden = !ai.running;
+    const res = ai.result;
+    const drafts = (res && res.drafts) || [], notes = (res && res.notes) || []; // older results saved them as null
+    $("ai-model").textContent = res ? res.model : "";
+    $("ai-progress").textContent = ai.running ? ai.progress
+      : res ? `${drafts.length} draft(s) from ${res.parts} part(s) of video, ${res.frames} frames.` +
+        (res.failed ? ` ${res.failed} question(s) failed.` : "") + (notes.length ? " " + notes.join(" ") : "")
+      : "";
+    $("ai-err").hidden = !ai.error;
+    $("ai-err").textContent = ai.error ? "AI marks: " + ai.error : "";
+    renderDrafts(drafts);
+  }
+
+  function renderDrafts(drafts) {
+    const box = $("ai-drafts");
+    if (!drafts.length) {
+      aiRows.clear();
+      aiThumbs.clear(); // draft ids start again at 1 in the next run
+      box.replaceChildren(h("div", { class: "empty", text: ai.running ? "Working…" : ai.result ? "No drafts." : "No AI marks for this session yet." }));
+      $("ai-bulk").hidden = true;
+      return;
+    }
+    if (box.querySelector(".empty")) box.replaceChildren();
+    const live = new Set(drafts.map((d) => d.id));
+    for (const [id, el] of aiRows) if (!live.has(id)) { el.remove(); aiRows.delete(id); }
+    drafts.forEach((d, i) => {
+      let el = aiRows.get(d.id);
+      if (!el) { el = makeDraft(d); aiRows.set(d.id, el); }
+      const pending = d.status === "pending";
+      el.dataset.status = d.status;
+      el.querySelectorAll(".acts button").forEach((b) => { b.disabled = !pending; });
+      el.querySelector("input[type=text]").disabled = !pending;
+      const pick = el.querySelector(".pick");
+      pick.disabled = !pending;
+      if (!pending) pick.checked = false;
+      if (box.children[i] !== el) box.insertBefore(el, box.children[i] || null);
+    });
+    paintSelection();
+  }
+
+  // pendingPicks are the check boxes of the drafts still waiting for a verdict.
+  const pendingPicks = () => [...$("ai-drafts").querySelectorAll(".pick:not(:disabled)")];
+
+  function paintSelection() {
+    const picks = pendingPicks(), n = picks.filter((p) => p.checked).length;
+    $("ai-bulk").hidden = !picks.length;
+    $("ai-selected-count").textContent = n + " of " + picks.length + " waiting drafts selected";
+    $("ai-select-all").checked = picks.length > 0 && n === picks.length;
+    $("ai-select-all").indeterminate = n > 0 && n < picks.length;
+    $("btn-ai-accept-sel").disabled = $("btn-ai-reject-sel").disabled = !n;
+  }
+
+  // decideDrafts sends verdicts for many drafts in one call.
+  function decideDrafts(decisions) {
+    return api.DecideAIDrafts(decisions).then((st) => { ai = st; paintAI(); }).catch(fail);
+  }
+
+  function decideSelected(accept) {
+    const decisions = pendingPicks().filter((p) => p.checked).map((p) => {
+      const row = p.closest(".draft");
+      return { id: Number(row.dataset.id), accept, text: row.querySelector("input[type=text]").value.trim() };
+    });
+    if (decisions.length) decideDrafts(decisions);
+  }
+
+  function makeDraft(d) {
+    const img = h("img", { alt: "Frame of this draft", title: "Click to enlarge" });
+    img.addEventListener("click", () => img.classList.toggle("big"));
+    if (aiThumbs.has(d.id)) img.src = aiThumbs.get(d.id);
+    else api.AIFrame(d.id).then((src) => { // "" once the frame was cleaned up
+      if (!src) { img.classList.add("gone"); return; } // keeps its column, so the row does not shift
+      aiThumbs.set(d.id, src); img.src = src;
+    }).catch(fail);
+    const inp = h("input", { type: "text", maxlength: "500", spellcheck: "false", autocomplete: "off", "aria-label": "Draft text" });
+    inp.value = d.text;
+    const decide = (accept) => decideDrafts([{ id: d.id, accept, text: inp.value.trim() }]);
+    // Drafts the model is sure about start selected; unsure ones do not.
+    const pick = h("input", { type: "checkbox", class: "pick", "aria-label": "Select this draft" });
+    pick.checked = d.status === "pending" && !d.unsure;
+    pick.addEventListener("change", paintSelection);
+    const meta = h("div", { class: "meta" },
+      h("span", { text: fmtRel(d.t_ms - S.started_ms) }), h("span", { text: d.kind }),
+      h("span", { class: d.unsure ? "unsure" : "", text: Math.round(d.confidence * 100) + "%" + (d.unsure ? " unsure" : "") }));
+    meta.title = d.candidates && d.candidates.length ? "Game data: " + d.candidates.join("; ") : "No game data match";
+    return h("div", { class: "draft", role: "listitem", "data-id": String(d.id) }, pick, img, h("div", {}, meta, inp),
+      h("div", { class: "acts" },
+        h("button", { class: "btn small", type: "button", title: "Add as a step", onclick: () => decide(true) }, "✓"),
+        h("button", { class: "btn small", type: "button", title: "Drop", onclick: () => decide(false) }, "✗")));
+  }
+
+  async function saveAI(patch, clearKey) {
+    try {
+      ai = await api.SetAISettings(Object.assign(aiForm(), patch || {}), !!clearKey);
+      aiFormDirty = false;
+      paintAI();
+      return true;
+    } catch (e) { fail(e); return false; }
+  }
+
+  // paintModels fills the model list from the last "Load list" (the saved
+  // model stays in it even before a list is loaded) and picks model.
+  function paintModels(model, effort) {
+    const ids = aiModels.map((m) => m.id);
+    if (model && !ids.includes(model)) ids.unshift(model);
+    const sel = $("ai-model-in");
+    sel.replaceChildren(ids.length ? null : h("option", { value: "", text: "Press Load list" }),
+      ...ids.map((id) => h("option", { value: id, text: id })));
+    sel.value = model || ids[0] || "";
+    paintEfforts(effort);
+  }
+
+  // paintEfforts offers the chosen model's efforts, lowest first. Without a
+  // wanted effort it picks the lowest, so a cheap setting is the default.
+  function paintEfforts(effort) {
+    const m = aiModels.find((x) => x.id === $("ai-model-in").value);
+    const efforts = (m && m.efforts && m.efforts.slice()) || [];
+    if (effort && !efforts.includes(effort)) efforts.push(effort);
+    const sel = $("ai-effort");
+    sel.replaceChildren(h("option", { value: "", text: "default" }), ...efforts.map((e) => h("option", { value: e, text: e })));
+    sel.value = effort !== undefined && efforts.includes(effort) ? effort : efforts[0] || "";
+  }
+
+  async function doLoadModels() {
+    const b = $("btn-ai-models");
+    if (!(await saveAI())) return;
+    b.disabled = true; b.textContent = "Loading…";
+    try {
+      aiModels = await api.ListAIModels();
+      paintModels($("ai-model-in").value, $("ai-effort").value);
+      aiFormDirty = true; // the shown model is not saved until Save
+      notice(aiModels.length + " model(s) found. Pick one, then Save.");
+    } catch (e) { fail(e); }
+    finally { b.disabled = false; b.textContent = "Load list"; }
+  }
+
+  function wireAI() {
+    ["ai-connector", "ai-cli", "ai-url", "ai-key", "ai-model-in", "ai-effort", "ai-data", "ai-every"].forEach((id) =>
+      ["input", "change"].forEach((ev) => $(id).addEventListener(ev, () => { aiFormDirty = true; paintAIFormParts(); })));
+    $("ai-model-in").addEventListener("change", () => paintEfforts());
+    $("ai-connector").addEventListener("change", () => { aiModels = []; paintModels("", ""); }); // another provider's list
+    $("ai-cli").addEventListener("change", () => { aiModels = []; paintModels("", ""); });
+    $("btn-ai-save").addEventListener("click", async () => { if (await saveAI()) notice("AI settings saved."); });
+    $("btn-ai-enable").addEventListener("click", () => saveAI({ enabled: !ai.settings.enabled }));
+    $("btn-ai-forget").addEventListener("click", async () => { if (await saveAI({ api_key: "" }, true)) notice("API key forgotten."); });
+    $("btn-ai-models").addEventListener("click", doLoadModels);
+    $("btn-ai-datadir").addEventListener("click", () => api.PickAIDataDir().then((st) => { ai = st; aiFormDirty = false; paintAI(); }).catch(fail));
+    $("btn-ai-run").addEventListener("click", () => api.RunAIMarks().then((st) => { ai = st; paintAI(); }).catch(fail));
+    $("ai-select-all").addEventListener("change", (e) => {
+      pendingPicks().forEach((p) => { p.checked = e.target.checked; });
+      paintSelection();
+    });
+    $("btn-ai-accept-sel").addEventListener("click", () => decideSelected(true));
+    $("btn-ai-reject-sel").addEventListener("click", () => decideSelected(false));
+    $("btn-ai-cancel").addEventListener("click", () => api.CancelAIMarks().then((st) => { ai = st; paintAI(); }).catch(fail));
+    B.bus.on("ai", (st) => { ai = st; paintAI(); });
   }
 
   // ---- wire -------------------------------------------------------------------
@@ -571,6 +877,18 @@
     $("btn-open").addEventListener("click", () => api.OpenFolder().catch(fail));
     $("btn-folder").addEventListener("click", () => api.OpenFolder().catch(fail));
     $("btn-browse-cap").addEventListener("click", doBrowseCap);
+    $("btn-split").addEventListener("click", doSplit);
+    $("btn-open-session").addEventListener("click", async () => {
+      try {
+        rows.clear();
+        render(await api.OpenSession());
+        $("done-where").textContent = S.export_dir;
+      } catch (e) { fail(e); }
+    });
+    $("btn-upload-open").addEventListener("click", () => api.OpenUploadZip().catch(fail));
+    $("btn-upload-page").addEventListener("click", () => api.OpenUploadPage());
+    B.bus.on("upload", (up) => paintUpload(up));
+    $("btn-parts").addEventListener("click", () => api.OpenPartsDir().catch(fail));
 
     $("btn-log-copy").addEventListener("click", () => {
       navigator.clipboard.writeText($("logbox").textContent).then(() => notice("Log copied to clipboard")).catch(fail);
@@ -595,6 +913,10 @@
     $("btn-video-pick").addEventListener("click", doPickWindow);
     $("s-video-target").addEventListener("change", (e) => e.target.value && api.SetVideoTarget(e.target.value).then((st) => { video = st; paintVideo(); }).catch(fail));
     $("s-video-audio").addEventListener("change", (e) => api.SetVideoAudio(e.target.value).then((st) => { video = st; paintVideo(); }).catch(fail));
+    const setFormat = () => api.SetVideoFormat($("s-video-codec").value, $("s-video-quality").value)
+      .then((st) => { video = st; paintVideo(); notice("Video format saved; it applies to the next clip."); }).catch(fail);
+    $("s-video-codec").addEventListener("change", setFormat);
+    $("s-video-quality").addEventListener("change", setFormat);
     $("btn-dir").addEventListener("click", async () => {
       try {
         const dir = await api.PickOutputDir();
@@ -603,7 +925,13 @@
     });
 
     $("btn-recover").addEventListener("click", async () => {
-      try { rows.clear(); const st = await api.RecoverDraft(); $("recover").hidden = true; render(st); } catch (e) { fail(e); }
+      try {
+        rows.clear();
+        const st = await api.RecoverDraft();
+        $("recover").hidden = true;
+        render(st);
+        if (ai && st.phase === "stopped" && st.export_dir) { ai = await api.LoadAIMarks(); paintAI(); }
+      } catch (e) { fail(e); }
     });
     $("btn-discard").addEventListener("click", async () => { await api.DiscardDraft(); $("recover").hidden = true; });
 
@@ -612,7 +940,9 @@
     B.bus.on("notice", (m) => notice(m));
     B.bus.on("caplog", (line) => appendLog(line));
     B.bus.on("capstatus", (st) => updateCapStatus(st));
-    B.bus.on("video", (st) => { video = st; paintVideo(); });
+    B.bus.on("video", (st) => { video = st; paintVideo(); paintAI(); });
+    wireAI();
+    wireTabs();
   }
 
   function paintDir() {
@@ -620,16 +950,17 @@
     $("s-dir").title = settings.output_dir;
   }
 
-  // Windows starts the game and stops it at the timeout; Linux attaches to the
-  // game you started and only stops recording. The Linux capture writes only
-  // the ledger, so the HTTPS "one per endpoint" option does not apply there.
+  // Linux attaches to the game you started and only stops recording. Windows
+  // does the same when the game already runs; otherwise it starts the game and
+  // closes it at the timeout. An attached capture writes only the ledger, so
+  // the HTTPS "one per endpoint" option does not apply on Linux.
   function applyPlatform(p) {
     platform = p;
     const linux = platform === "linux";
     $("cap-oneperep").closest("label").hidden = linux;
     $("cap-timeout").title = linux
       ? "Seconds after which recording stops. The game keeps running."
-      : "Seconds after which the capture stops and closes the game.";
+      : "Seconds after which the capture stops. A game the app started is closed; a game you started keeps running.";
   }
 
   async function init() {
@@ -640,6 +971,7 @@
     activities = boot.activities;
     settings = boot.settings;
     video = boot.video || null;
+    ai = boot.ai || null;
     platform = boot.platform || "";
     hotkeyErr = boot.hotkey_error || "";
     $("in-activity").replaceChildren(...activities.map((a) => h("option", { value: a, text: a })));
@@ -653,6 +985,7 @@
     if (settings.one_per_endpoint) $("cap-oneperep").checked = true;
     applyPlatform(boot.platform);
     paintVideo();
+    paintAI();
 
     if (boot.env_ready) {
       updateCapStatus("installed");

@@ -1,16 +1,21 @@
-"""Azoth Capture attach helper (Linux).
+"""Azoth Capture attach helper.
 
 Usage (done by the app, not by hand):
-    python azoth_attach.py --nw-dir <nw_capture dir> --ledger-js <patched _dtls_ledger.js>
-                           --sites <hook sites JSON> --host <ip:port> --session <name>
-                           --captures-root <dir> [--timeout <seconds>]
+    python azoth_attach.py --common-js <patched _common.js> --ledger-js <patched _dtls_ledger.js>
+                           --process <game file name> --sites <hook sites JSON>
+                           --session <name> --captures-root <dir> [--timeout <seconds>]
+                           [--pid <process id>] [--host <ip:port>] [--stop-on-eof]
 
-What it does: connects to a Windows Frida server running inside the game's
-Proton prefix, finds the one running NewWorld.exe, and ATTACHES to it. It first
+What it does: finds the one running game (the program named --process, or the
+one with --pid) and ATTACHES to it. The patched _common.js finds the game in
+memory under its file name. On Linux
+it reaches the game through a Windows Frida server running inside the game's
+Wine prefix (--host). On Windows it attaches directly (no --host). It first
 checks that the code at each hook site in the game's memory is exactly the code
 the app scanned in the executable file; if any site differs, nothing is hooked.
-Then it loads the upstream Aeternum-World helpers and DTLS ledger unchanged (the
-real hooks live there) and writes the decrypted session into
+Then it loads the upstream Aeternum-World helpers (with only the game's file
+name set) and DTLS ledger (with only the hook addresses set; the real hooks live
+there) and writes the decrypted session into
 <captures-root>/<session>/dtls/ledger.bin, the same layout the Windows capture
 produces. It never spawns or kills the game.
 
@@ -23,16 +28,20 @@ The tap only feeds the HTTPS extract, which the Linux capture does not make.
 Why attach instead of spawn: on Linux the game is launched the normal way through
 Steam, so Easy Anti-Cheat stays active and the server does not disconnect the
 player. Attaching from a Frida server inside the same Proton prefix reads the
-traffic without taking the anti-cheat offline.
+traffic without taking the anti-cheat offline. On Windows the helper is used
+when the game is already running.
 
-On SIGINT or SIGTERM (the app's Stop) it flushes the last data, detaches from
-the game and stops the Frida server, then exits.
+On SIGINT or SIGTERM (the app's Stop on Linux), or when standard input closes
+with --stop-on-eof (the app's Stop on Windows, which has no such signals for
+a program without a console), it flushes the last data, detaches from the game
+and stops the Frida server if there is one, then exits.
 """
 import argparse
 import json
 import os
 import re
 import signal
+import sys
 import threading
 import time
 from datetime import datetime, timezone
@@ -40,7 +49,6 @@ from pathlib import Path
 
 import frida
 
-GAME_PROCESS = "NewWorld.exe"
 SERVER_PROCESS = "frida-server.exe"
 PRIVATE_UMASK = 0o077  # the key log holds TLS secrets: owner-only files
 LEDGER_FLUSH_SECONDS = 1.0
@@ -99,8 +107,7 @@ def parse_sites(text: str) -> list:
     return sites
 
 
-def build_agent(nw_dir: Path, ledger_js: Path, sites: list) -> str:
-    common = nw_dir / "_common.js"
+def build_agent(common: Path, ledger_js: Path, sites: list) -> str:
     for path in (common, ledger_js):
         if not path.is_file():
             raise FileNotFoundError(path)
@@ -114,9 +121,12 @@ def build_agent(nw_dir: Path, ledger_js: Path, sites: list) -> str:
 class Attach:
     def __init__(self, args):
         self.host = args.host
+        self.stop_on_eof = args.stop_on_eof
+        self.process = args.process
+        self.pid = args.pid
         self.timeout = float(args.timeout)
         self.session_name = args.session
-        self.agent_src = build_agent(Path(args.nw_dir).resolve(),
+        self.agent_src = build_agent(Path(args.common_js).resolve(),
                                      Path(args.ledger_js).resolve(),
                                      parse_sites(args.sites))
 
@@ -143,25 +153,33 @@ class Attach:
     def run(self) -> int:
         for sig in (signal.SIGINT, signal.SIGTERM):
             signal.signal(sig, lambda *_: self.stop.set())
+        if self.stop_on_eof:
+            threading.Thread(target=self._stop_at_eof, daemon=True).start()
 
+        if not self.host:
+            return self._capture(frida.get_local_device())
         device = frida.get_device_manager().add_remote_device(self.host)
         try:
             return self._capture(device)
         finally:
             stop_server(device)
 
+    def _stop_at_eof(self) -> None:
+        sys.stdin.buffer.read()
+        self.stop.set()
+
     def _capture(self, device) -> int:
         params = device.query_system_parameters()
         if params.get("platform") != "windows" or params.get("arch") != "x64":
-            print("-- the capture server is not Windows x64; refusing to attach")
+            print("-- the game's system is not Windows x64; refusing to attach")
             return 2
 
-        pids = process_ids(device, GAME_PROCESS)
+        pids = [self.pid] if self.pid else process_ids(device, self.process)
         if len(pids) != 1:
-            print(f"-- expected exactly one {GAME_PROCESS}, found {len(pids)}")
+            print(f"-- expected exactly one {self.process}, found {len(pids)}")
             return 2
         pid = pids[0]
-        print(f"-- attaching to {GAME_PROCESS} (pid {pid})")
+        print(f"-- attaching to {self.process} (pid {pid})")
 
         self.ledger_f = self.ledger_path.open("ab")
         self.keylog_f = self.keylog_path.open("a", encoding="ascii")
@@ -298,13 +316,16 @@ def stop_server(device) -> None:
 def main() -> int:
     os.umask(PRIVATE_UMASK)
     parser = argparse.ArgumentParser()
-    parser.add_argument("--nw-dir", required=True)
+    parser.add_argument("--common-js", required=True)
     parser.add_argument("--ledger-js", required=True)
+    parser.add_argument("--process", required=True)
+    parser.add_argument("--pid", type=int, default=0)
     parser.add_argument("--sites", required=True)
-    parser.add_argument("--host", required=True)
+    parser.add_argument("--host", default="")
     parser.add_argument("--session", required=True)
     parser.add_argument("--captures-root", required=True)
     parser.add_argument("--timeout", default="0")
+    parser.add_argument("--stop-on-eof", action="store_true")
     args = parser.parse_args()
     try:
         return Attach(args).run()
@@ -316,6 +337,10 @@ def main() -> int:
         return 2
     except (frida.ServerNotRunningError, frida.TransportError) as e:
         print(f"-- the capture server is not reachable: {e}")
+        return 2
+    except frida.PermissionDeniedError as e:
+        print(f"-- not allowed to attach to the game ({e}); the game may run as "
+              "administrator or with its anti-cheat on")
         return 2
     except frida.ProcessNotFoundError as e:
         print(f"-- the game went away before the capture could attach: {e}")

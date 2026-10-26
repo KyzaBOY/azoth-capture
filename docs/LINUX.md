@@ -106,9 +106,9 @@ that in your clips.
 The video key starts and stops a clip. It is F9 unless you change it, and like
 F8 it needs the `input` group. The **Start video** button works without it.
 
-Video is separate from the session. Starting a session doesn't start video;
-you start each clip yourself, and each start makes a new clip. Video also
-never runs without the capture. A clip can't start while the capture isn't
+With video on, a clip starts with each session. The video key or button
+stops it, and each new start makes a new clip. Video never runs without the
+capture. A clip can't start while the capture isn't
 running, and a running clip is stopped and saved whenever the capture ends,
 whatever the reason: Stop Session, the timeout, the game closing, or an error.
 
@@ -150,6 +150,16 @@ sudo usermod -aG input "$USER"
 
 Then log out and back in. If you'd rather not, skip it. The on-screen Mark
 button does the same job, and the app tells you the global key is off.
+
+## If the window stays blank
+
+The app draws its window with the GPU, so it scrolls smoothly on large
+screens. If the window stays blank or flickers on your PC, start it with GPU
+drawing off:
+
+```bash
+AZOTH_CAPTURE_GPU=off ./AzothCapture
+```
 
 ## Where files go
 

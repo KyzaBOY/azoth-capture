@@ -73,6 +73,7 @@
           <label class="field" style="flex:0 0 90px"><span>Timeout</span><input type="number" id="cap-timeout" value="600" min="10" max="7200"></label>
           <label class="field check-field" style="flex:0 0 auto;align-self:flex-end"><input type="checkbox" id="cap-oneperep"><span>One per endpoint</span></label>
           <span class="grow"></span>
+          <button class="btn small" id="btn-open-session" type="button" title="Load a stopped session, to review its AI marks or make its upload zip">Open saved session</button>
           <button class="btn primary" id="btn-start" type="button">Start Session</button>
           <button class="btn" id="btn-stop" type="button" hidden>Stop Session</button>
         </div>
@@ -86,12 +87,39 @@
         <p class="where" id="done-where"></p>
         <p class="err-line" id="size-warn" hidden></p>
         <p class="err-line" id="done-err" hidden></p>
+        <div class="upload" id="upload" hidden>
+          <span id="upload-path"></span>
+          <button class="btn small primary" id="btn-upload-open" type="button">Show upload zip</button>
+          <div class="parts" id="upload-problems"></div>
+        </div>
         <div class="btns">
           <button class="btn primary" id="btn-send" type="button">Open files to send</button>
           <button class="btn small" id="btn-open" type="button">Full export</button>
           <button class="btn small" id="btn-export2" type="button">Export again</button>
           <button class="btn small" id="btn-browse-cap" type="button">Captures folder</button>
           <button class="btn small primary" id="btn-new" type="button">New session</button>
+        </div>
+        <div class="btns">
+          <button class="btn small primary" id="btn-upload-page" type="button" title="Opens projectazoth.com/upload in your web browser">Open upload page</button>
+          <button class="btn small" id="btn-split" type="button" title="One upload zip per login. A login is never cut into slices.">Split by connection</button>
+          <button class="btn small" id="btn-parts" type="button" hidden>Open parts</button>
+        </div>
+        <div class="parts" id="split-result" hidden></div>
+        <div class="aireview" id="ai-review" hidden>
+          <h3>AI marks <small id="ai-model"></small><span class="grow"></span>
+            <button class="btn small" id="btn-ai-run" type="button">Run again</button>
+            <button class="btn small" id="btn-ai-cancel" type="button" hidden>Stop</button>
+          </h3>
+          <p class="mstatus" id="ai-progress"></p>
+          <p class="err-line" id="ai-err" hidden></p>
+          <div class="draftbar" id="ai-bulk" hidden>
+            <label class="check-field"><input type="checkbox" id="ai-select-all"><span>Select all</span></label>
+            <span class="grow" id="ai-selected-count"></span>
+            <button class="btn small primary" id="btn-ai-accept-sel" type="button">Accept selected</button>
+            <button class="btn small" id="btn-ai-reject-sel" type="button">Reject selected</button>
+          </div>
+          <div class="drafts" id="ai-drafts" role="list"></div>
+          <p class="legend">Check each draft against its picture. <strong>&#10003;</strong> adds it to steps.json at that moment; <strong>&#10007;</strong> drops it. Edit the text first if it is close but not right.</p>
         </div>
         <p class="rule">Drag <strong>ledger.bin</strong> and <strong>steps.json</strong> from the send folder to your Discord ticket. <strong>Never share the HTTPS folders, logs or keylog.txt</strong> &mdash; they contain your account tokens.</p>
       </section>
@@ -120,6 +148,13 @@
 
         <!-- right: missions + settings -->
         <div class="col">
+          <!-- one panel at a time, so the window fits without scrolling -->
+          <div class="tabs" role="tablist" aria-label="Right panel">
+            <button type="button" role="tab" data-tab="missions" aria-selected="true">Missions</button>
+            <button type="button" role="tab" data-tab="settings" aria-selected="false">Settings</button>
+            <button type="button" role="tab" data-tab="video-panel" aria-selected="false">Video</button>
+            <button type="button" role="tab" data-tab="ai-panel" aria-selected="false" id="tab-ai">AI marks</button>
+          </div>
           <section class="panel" id="missions">
             <h2>Missions <small>optional</small></h2>
             <div class="row">
@@ -140,6 +175,16 @@
               <label>Folder</label>
               <div class="val" id="s-dir" title=""></div>
               <button class="btn small" id="btn-dir" type="button">Browse</button>
+              <div class="err" id="s-err" hidden></div>
+            </div>
+            <div class="retry-row" id="retry-row" hidden>
+              <button class="btn small" id="btn-retry" type="button">Retry environment setup</button>
+            </div>
+          </section>
+
+          <section class="panel" id="video-panel">
+            <h2>Video <small>optional</small></h2>
+            <div class="kv">
               <label class="video-row" hidden>Video</label>
               <div class="val video-row" id="s-video" hidden>Off</div>
               <button class="btn small video-row" id="btn-video-allow" type="button" hidden>Turn on</button>
@@ -149,21 +194,88 @@
               <label class="video-opt video-mon" hidden>Monitor</label>
               <select class="val video-opt video-mon" id="s-video-target" hidden></select>
               <span class="video-opt video-mon" hidden></span>
-              <label class="video-opt" hidden>Video sound</label>
-              <select class="val video-opt" id="s-video-audio" hidden>
+              <label class="video-opt" hidden>Video format</label>
+              <select class="val video-opt" id="s-video-codec" hidden title="Same picture quality, smaller files: AV1 is the smallest. If the GPU cannot record the chosen format, the next one is used.">
+                <option value="auto">Auto (smallest the GPU can record)</option>
+                <option value="av1">AV1 (smallest files)</option>
+                <option value="hevc">HEVC (smaller files)</option>
+                <option value="h264">H.264 (plays everywhere)</option>
+              </select>
+              <span class="video-opt" hidden></span>
+              <label class="video-opt" hidden>Video quality</label>
+              <select class="val video-opt" id="s-video-quality" hidden>
+                <option value="medium">Medium (smaller)</option>
+                <option value="high">High</option>
+                <option value="very_high">Very high (bigger)</option>
+              </select>
+              <span class="video-opt" hidden></span>
+              <label class="video-opt video-sound" hidden>Video sound</label>
+              <select class="val video-opt video-sound" id="s-video-audio" hidden>
                 <option value="game">Game sound, no microphone</option>
                 <option value="none">No sound</option>
               </select>
-              <span class="video-opt" hidden></span>
+              <span class="video-opt video-sound" hidden></span>
               <label class="video-opt" hidden>Video key</label>
               <div class="val video-opt" id="s-vhotkey" hidden>F9</div>
               <button class="btn small video-opt" id="btn-vhk" type="button" hidden>Change</button>
               <div class="note video-row" id="s-video-note" hidden></div>
-              <div class="err" id="s-err" hidden></div>
+              <div class="err" hidden></div>
             </div>
-            <div class="retry-row" id="retry-row" hidden>
-              <button class="btn small" id="btn-retry" type="button">Retry environment setup</button>
+          </section>
+
+          <section class="panel" id="ai-panel" hidden>
+            <h2>AI marks <small>optional</small><span class="grow"></span>
+              <button class="btn small" id="btn-ai-enable" type="button">Turn on</button>
+            </h2>
+            <p class="mstatus" id="ai-note"></p>
+            <div class="row">
+              <label class="field"><span>Model from</span>
+                <select id="ai-connector">
+                  <option value="cli">Subscription CLI</option>
+                  <option value="openai">OpenAI-style API or local server</option>
+                  <option value="anthropic">Anthropic API</option>
+                </select>
+              </label>
+              <label class="field ai-cli"><span>CLI</span><select id="ai-cli"></select></label>
             </div>
+            <div class="row ai-openai" style="margin-top:10px">
+              <label class="field"><span>API address</span><input type="text" id="ai-url" spellcheck="false" autocomplete="off" placeholder="http://127.0.0.1:11434/v1"></label>
+            </div>
+            <div class="row ai-key" style="margin-top:10px">
+              <label class="field"><span>API key</span>
+                <div class="input-row">
+                  <input type="password" id="ai-key" spellcheck="false" autocomplete="off">
+                  <button class="btn small" id="btn-ai-forget" type="button">Forget</button>
+                </div>
+              </label>
+            </div>
+            <div class="row" style="margin-top:10px">
+              <label class="field"><span>Model</span>
+                <div class="input-row">
+                  <select id="ai-model-in"></select>
+                  <button class="btn small" id="btn-ai-models" type="button">Load list</button>
+                </div>
+              </label>
+              <label class="field" style="flex:0 1 120px"><span>Effort</span><select id="ai-effort"></select></label>
+            </div>
+            <div class="row" style="margin-top:10px">
+              <label class="field"><span>Game data</span>
+                <select id="ai-data">
+                  <option value="online">Online (nwdb.info)</option>
+                  <option value="local">Local folder</option>
+                </select>
+              </label>
+              <label class="field" style="flex:0 0 110px"><span>Frame every (s)</span><input type="number" id="ai-every" min="1" max="10"></label>
+            </div>
+            <div class="row ai-local" style="margin-top:10px">
+              <div class="val grow" id="ai-datadir">No folder picked</div>
+              <button class="btn small" id="btn-ai-datadir" type="button">Pick folder</button>
+            </div>
+            <div class="row" style="margin-top:10px">
+              <span class="grow"></span>
+              <button class="btn small primary" id="btn-ai-save" type="button">Save</button>
+            </div>
+            <div class="stats" id="ai-stats"></div>
           </section>
         </div>
       </div>

@@ -16,7 +16,7 @@ import (
 	"azoth/capture/internal/video"
 )
 
-// ---- video (opt-in; implemented on Linux) -----------------------------------
+// ---- video (opt-in; Linux and Windows) --------------------------------------
 //
 // Video is off until the player allows it in Settings. Then, while a session
 // runs, the Video button or the video hotkey starts and stops a clip. Clips go
@@ -35,6 +35,9 @@ var (
 const portalTokenName = "video-portal-token"
 
 func portalTokenPath() string { return filepath.Join(config.DataDir(), portalTokenName) }
+
+// toolsDir holds tools the app downloaded (ffmpeg on Windows).
+func toolsDir() string { return filepath.Join(config.DataDir(), video.ToolsDirName) }
 
 // videoState is the video part of App, behind its own lock: stopping a clip
 // waits for the recorder to finish writing, and that must not block the rest
@@ -62,12 +65,17 @@ type VideoStatus struct {
 	HotkeyError  string     `json:"hotkey_error"`
 	Clips        int        `json:"clips"`
 	Error        string     `json:"error"`
+	Codec        string     `json:"codec"`   // the chosen format, one of video.Codecs
+	Quality      string     `json:"quality"` // one of video.Qualities
 }
 
 // probeVideo finds out whether the recorder is installed and which monitors it
 // sees.
 func (a *App) probeVideo() {
-	info := video.Probe()
+	info := video.Probe(toolsDir())
+	if !info.Available {
+		a.emit("caplog", "Video: not available: "+info.Reason)
+	}
 	a.vid.mu.Lock()
 	a.vid.info = info
 	a.vid.mu.Unlock()
@@ -85,7 +93,7 @@ func (a *App) VideoState() VideoStatus {
 		Info: a.vid.info, Allowed: set.VideoAllowed, Recording: a.vid.rec != nil,
 		Target: videoTarget(set, a.vid.info), WindowPicked: tokenErr == nil, Audio: set.VideoAudio,
 		Hotkey: set.VideoHotkey, HotkeyError: hkErr,
-		Clips: len(a.vid.clips), Error: a.vid.err,
+		Clips: len(a.vid.clips), Error: a.vid.err, Codec: set.VideoCodec, Quality: set.VideoQuality,
 	}
 }
 
@@ -99,6 +107,20 @@ func (a *App) RefreshVideo() VideoStatus {
 	a.registerVideoLocked()
 	a.mu.Unlock()
 	return a.VideoState()
+}
+
+// InstallVideo downloads the recorder where the app can (ffmpeg on Windows),
+// then checks again. It runs in the background; the window hears "video".
+func (a *App) InstallVideo() {
+	go func() {
+		if err := video.Install(toolsDir(), func(line string) { a.emit("caplog", line) }); err != nil {
+			a.vid.mu.Lock()
+			a.vid.err = err.Error()
+			a.vid.mu.Unlock()
+		}
+		a.RefreshVideo()
+		a.emitVideo()
+	}()
 }
 
 // videoTarget is what clips record: the game window when the desktop lets the
@@ -155,13 +177,29 @@ func (a *App) SetVideoAudio(mode string) (VideoStatus, error) {
 	return a.VideoState(), err
 }
 
+// SetVideoFormat chooses the video format and quality for the next clips.
+// A format the GPU cannot encode falls back when the clip starts.
+func (a *App) SetVideoFormat(codec, quality string) (VideoStatus, error) {
+	if !slices.Contains(video.Codecs, codec) {
+		return a.VideoState(), fmt.Errorf("unknown video format %q", codec)
+	}
+	if !slices.Contains(video.Qualities, quality) {
+		return a.VideoState(), fmt.Errorf("unknown video quality %q", quality)
+	}
+	a.mu.Lock()
+	a.set.VideoCodec, a.set.VideoQuality = codec, quality
+	err := a.saveLocked()
+	a.mu.Unlock()
+	return a.VideoState(), err
+}
+
 // PickVideoWindow opens the desktop's dialog so the player can choose the game
 // window once; later clips record that window without asking.
 func (a *App) PickVideoWindow() (VideoStatus, error) {
 	a.vid.mu.Lock()
-	window := a.vid.info.WindowCapture
+	pick := a.vid.info.NeedsPick
 	a.vid.mu.Unlock()
-	if !window {
+	if !pick {
 		return a.VideoState(), errVideoNoWindow
 	}
 	err := video.PickWindow(portalTokenPath(), func(line string) { a.emit("caplog", line) })
@@ -222,6 +260,10 @@ func (a *App) startClipLocked() error {
 		Window:      target == video.WindowTarget,
 		PortalToken: portalTokenPath(),
 		GameAudio:   set.VideoAudio == config.VideoAudioGame,
+		GameExe:     set.ExePath,
+		ToolsDir:    toolsDir(),
+		Codec:       set.VideoCodec,
+		Quality:     set.VideoQuality,
 	}
 	if !opt.Window {
 		opt.Monitor = target
@@ -240,6 +282,46 @@ func (a *App) startClipLocked() error {
 	a.emit("caplog", "Video: recording the "+what+".")
 	go a.watchClip(rec)
 	return nil
+}
+
+// Video starts by itself with each session when the player turned it on.
+// The game window may not exist yet (Windows starts the game with the
+// capture), so a clip that fails or stops at once is tried again for a while.
+const (
+	autoVideoWait  = 2 * time.Minute
+	autoVideoRetry = 10 * time.Second
+)
+
+// autoStartVideo starts a clip for the session that just started, if video
+// is on.
+func (a *App) autoStartVideo() {
+	a.mu.Lock()
+	on := a.set.VideoAllowed
+	a.mu.Unlock()
+	if !on {
+		return
+	}
+	deadline := time.Now().Add(autoVideoWait)
+	for time.Now().Before(deadline) {
+		if a.cap.Status() != capture.StatusRunning {
+			return
+		}
+		if err := a.startClip(); err == nil {
+			time.Sleep(autoVideoRetry)
+			a.vid.mu.Lock()
+			recording := a.vid.rec != nil
+			a.vid.mu.Unlock()
+			if recording {
+				return
+			}
+		} else if errors.Is(err, errVideoNoMonitor) || errors.Is(err, errVideoNotAllowed) {
+			a.emit("notice", "Video: "+err.Error())
+			return
+		} else {
+			time.Sleep(autoVideoRetry)
+		}
+	}
+	a.emit("caplog", "Video: the clip did not start with the session; press Start video when the game is up.")
 }
 
 // watchClip notices a recorder that stops on its own (an error, or the monitor

@@ -12,20 +12,20 @@ import (
 	"time"
 
 	"azoth/capture/internal/hooks"
+	"azoth/capture/internal/steam"
 )
 
 //go:embed embed/config.json
 var configJSON []byte
 
 // Platform files (capture_windows.go / capture_linux.go) provide these: the
-// installer script and its name, the capture shim and its name, and the
-// functions that differ between Windows (spawn the game) and Linux (attach to
-// the running game under Proton).
+// installer script and its name, the helper scripts the capture runs, and the
+// functions that differ between Windows (attach to the running game, or spawn
+// it) and Linux (attach to the running game under Wine).
 //
 //   installScript   embedded installer bytes
 //   installerName   file name the installer is written out as
-//   runShim         embedded capture shim bytes
-//   shimName        file name the shim is written out as
+//   helperScripts   helper scripts by file name, written out at each capture
 //   (*Runner) pythonExe() string
 //   (*Runner) runInstaller() error
 //   (*Runner) startEngine(ctx, exePath, session, timeout, onePerEP, setup)
@@ -43,8 +43,8 @@ const (
 )
 
 // stopWait bounds how long StopCapture waits for the capture process to
-// finish. It covers the Linux helper's own grace period (flush, detach, stop
-// the Frida server) with room to spare.
+// finish. It covers the attach helper's own grace period (stopGrace) with
+// room to spare.
 const stopWait = 30 * time.Second
 
 type Runner struct {
@@ -99,17 +99,20 @@ func (r *Runner) captureScript() string {
 // and the launcher shim), kept apart from the untouched upstream checkout.
 func (r *Runner) azothDir() string { return filepath.Join(r.rootDir, "azoth") }
 
-// hookSetup is what prepareHooks hands to the platform engine: the shim to
-// run, the patched hook script it loads, and the hook addresses it was patched
-// with.
+// hookSetup is what prepareHooks hands to the platform engine: the patched
+// hook script and helper script the helpers load, and the hook addresses the
+// hook script was patched with.
 type hookSetup struct {
-	shim    string
 	patched string
+	common  string
 	addrs   hooks.Addrs
 }
 
+// helperPath is where a helper script from helperScripts is written out.
+func (r *Runner) helperPath(name string) string { return filepath.Join(r.azothDir(), name) }
+
 // prepareHooks works out where the hooks go for THIS game build and writes the
-// patched hook script plus the shim that makes the capture use it. It fails,
+// patched hook script plus the helper scripts that make the capture use it. It fails,
 // before anything is launched, if the build is not one we can hook with
 // certainty.
 func (r *Runner) prepareHooks(exePath string) (hookSetup, error) {
@@ -136,19 +139,33 @@ func (r *Runner) prepareHooks(exePath string) (hookSetup, error) {
 		return hookSetup{}, err
 	}
 
+	commonSrc, err := os.ReadFile(filepath.Join(r.captureDir(), "_common.js"))
+	if err != nil {
+		return hookSetup{}, fmt.Errorf("capture tools are incomplete, run Install again: %w", err)
+	}
+	common, err := patchCommonJS(string(commonSrc), steam.GameFileName(exePath))
+	if err != nil {
+		return hookSetup{}, err
+	}
+
 	if err := os.MkdirAll(r.azothDir(), 0o755); err != nil {
 		return hookSetup{}, err
 	}
 	setup := hookSetup{
-		shim:    filepath.Join(r.azothDir(), shimName),
 		patched: filepath.Join(r.azothDir(), "_dtls_ledger.js"),
+		common:  filepath.Join(r.azothDir(), "_common.js"),
 		addrs:   addrs,
 	}
 	if err := os.WriteFile(setup.patched, []byte(out), 0o644); err != nil {
 		return hookSetup{}, err
 	}
-	if err := os.WriteFile(setup.shim, runShim, 0o644); err != nil {
+	if err := os.WriteFile(setup.common, []byte(common), 0o644); err != nil {
 		return hookSetup{}, err
+	}
+	for name, script := range helperScripts {
+		if err := os.WriteFile(r.helperPath(name), script, 0o644); err != nil {
+			return hookSetup{}, err
+		}
 	}
 	return setup, nil
 }
@@ -238,6 +255,7 @@ func (r *Runner) StartCapture(exePath, session string, timeout int, onePerEP boo
 	if _, err := os.Stat(r.captureScript()); err != nil {
 		return fmt.Errorf("capture tools not found, run Install first")
 	}
+	exePath = r.gameExe(exePath)
 	if _, err := os.Stat(exePath); err != nil {
 		return fmt.Errorf("game executable not found: %s", exePath)
 	}

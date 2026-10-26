@@ -360,23 +360,38 @@ Setup details, building and how it works inside are in
 - **`ledger.bin` stays at 0 bytes on menus** like login, character select or
   character creation. That's normal: it fills up once you're in the world.
 
-### Video (optional, Linux only)
+### Video (optional)
 
 The app can record video of the game window next to your capture. It's off
-until you turn it on, and it never records on its own.
+until you turn it on. Once it's on, a clip starts with each session.
 
-1. Install GPU Screen Recorder (`sudo apt install gpu-screen-recorder` on
-   Debian and Ubuntu based systems, or from Flathub).
-2. In **Settings**, turn **Video** on. With the game open, click **Pick
-   window** and choose the New World window in the dialog that pops up. You
-   only do this once.
-3. During a session, click **Start video** or press **F9** to start a clip,
-   and again to stop it.
+1. Get the recorder.
+   - **Linux:** install GPU Screen Recorder (`sudo apt install
+     gpu-screen-recorder` on Debian and Ubuntu based systems, or from
+     Flathub).
+   - **Windows:** in **Settings**, click **Install** in the **Video** row. The
+     app downloads ffmpeg (about 190 MB) and checks it. If you already have
+     ffmpeg 8.1 or newer on PATH, it uses that one.
+2. In **Settings**, turn **Video** on. On Linux, with the game open, click
+   **Pick window** and choose the New World window in the dialog that pops
+   up. You only do this once. Windows finds the game window by itself.
+3. Start a session. The clip starts with it. Click **Stop video** or press
+   **F9** to stop it, and again to start a new clip.
+
+On Windows, clips have no sound: ffmpeg can't record one program's sound
+there, and it won't record your whole desktop.
+
+**Video format** and **Video quality** in Settings set how big clips are.
+"Auto" picks the smallest format your graphics card can record (AV1, then
+HEVC, then H.264) at the same quality. If the card can't record the format you
+chose, the app uses the next one and says so in the Activity Log. AV1 clips may
+need a recent player (VLC or mpv); on Windows, the built-in player needs
+Microsoft's free AV1 extension.
 
 Clips land in your session folder as `gameplay-001.mkv` and so on, plus a
 `video.json` with the exact start times so we can line a clip up with the
 packets. Video never goes in the `send` folder, since it can show your name
-and chat. It records the game's own sound and never your microphone. Stopping
+and chat. It never records your microphone. Stopping
 the session also stops a clip that's still running. More details are in
 [docs/LINUX.md](docs/LINUX.md#video-optional-off-by-default).
 

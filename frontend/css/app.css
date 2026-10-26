@@ -28,7 +28,9 @@
 html,body{margin:0;padding:0;height:100%;background:var(--ground);color:var(--paper);font:400 13px/1.5 var(--mono);overflow:hidden;-webkit-text-size-adjust:100%}
 [hidden]{display:none !important}
 
-body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:60;opacity:.09;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0.55 0'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E") 0 0/180px 180px}
+body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:60;opacity:.09;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0.55 0'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E") 0 0/180px 180px;will-change:transform}
+/* will-change gives each full-window overlay its own GPU layer, so scrolling
+   and the ticking clock do not redraw it. */
 
 .d25{background-image:conic-gradient(from 90deg at 1px 1px,var(--dc) 90deg,transparent 0);background-size:2px 2px}
 .d50{background-image:conic-gradient(var(--dc) 25%,transparent 0 50%,var(--dc) 0 75%,transparent 0);background-size:2px 2px}
@@ -40,7 +42,7 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:60;opa
   box-shadow:inset 1px 1px var(--hi),inset -1px -1px var(--lo),inset 2px 2px var(--face),inset -2px -2px var(--face-2);
   padding:3px;display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr) auto;gap:0;
 }
-.win::after{content:'';position:absolute;inset:0;pointer-events:none;z-index:5;background:repeating-linear-gradient(0deg,rgba(30,36,41,.05) 0 1px,transparent 1px 3px)}
+.win::after{content:'';position:absolute;inset:0;pointer-events:none;z-index:5;background:repeating-linear-gradient(0deg,rgba(30,36,41,.05) 0 1px,transparent 1px 3px);will-change:transform}
 
 /* ---------- title bar ---------- */
 .tb{position:relative;background:var(--ink);color:var(--paper);display:flex;align-items:center;gap:8px;padding:0 3px 0 10px;height:25px;overflow:hidden;--wails-draggable:drag}
@@ -103,7 +105,7 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:60;opa
 .panel h2 small{font:500 11px/1 var(--mono);color:var(--ink-3);letter-spacing:.04em}
 
 /* clock */
-.clockpanel{position:relative;background-color:var(--ink-deep);color:var(--paper);box-shadow:var(--display);padding:14px 18px 12px;text-align:center;--wails-draggable:drag}
+.clockpanel{contain:paint;position:relative;background-color:var(--ink-deep);color:var(--paper);box-shadow:var(--display);padding:14px 18px 12px;text-align:center;--wails-draggable:drag}
 .clockpanel .dith{position:absolute;inset:3px;pointer-events:none;--dc:rgba(233,236,238,.04)}
 .clock{position:relative;font:500 clamp(34px,5vw,56px)/1 var(--mono);letter-spacing:-.02em;font-variant-numeric:tabular-nums}
 .clock .ms{color:var(--ink-3)}
@@ -115,11 +117,11 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:60;opa
 /* form */
 .field{display:flex;flex-direction:column;gap:4px;min-width:0}
 .field>span{font:500 11px/1 var(--mono);color:var(--ink-3);letter-spacing:.14em;text-transform:uppercase}
-input[type=text],input[type=number],select{
+input[type=text],input[type=number],input[type=password],select{
   font:400 13px/1.2 var(--mono);color:var(--ink);background:var(--paper);border:0;border-radius:0;
   padding:8px 9px;box-shadow:var(--sunken);min-width:0;width:100%;outline:none;
 }
-input[type=text]:focus,input[type=number]:focus,select:focus{background:#fff;outline:1px dotted var(--accent);outline-offset:-4px}
+input[type=text]:focus,input[type=number]:focus,input[type=password]:focus,select:focus{background:#fff;outline:1px dotted var(--accent);outline-offset:-4px}
 input:disabled,select:disabled{background:var(--face-2);color:var(--ink-3)}
 .row{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap}
 .row>.field{flex:1 1 150px}
@@ -240,6 +242,60 @@ input:disabled,select:disabled{background:var(--face-2);color:var(--ink-3)}
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{animation:none !important;transition:none !important}
 }
+
+/* ---- right column tabs ---- */
+.tabs{display:flex;gap:2px;margin-bottom:-12px}
+.tabs button{flex:1;padding:7px 10px 8px;border:0;background:var(--face);color:var(--ink-2);box-shadow:var(--raised);font:600 12px/1 var(--sans);letter-spacing:.02em;cursor:pointer}
+.tabs button:hover{color:var(--accent)}
+.tabs button[aria-selected="true"]{box-shadow:var(--pressed);background:var(--face-2);color:var(--accent)}
+.tabs button:focus-visible{outline:1px dotted var(--ink);outline-offset:-4px}
+.col > .panel.tab-off{display:none}
+/* The tabbed column fills the height left below Session; a tab taller than
+   that scrolls inside itself instead of stretching the whole window. */
+.cols{grid-template-rows:minmax(var(--tabs-min-h),1fr);--tabs-min-h:260px}
+.cols > .col:last-child{max-height:100%;min-height:0;overflow:hidden}
+.cols > .col:last-child > .panel{overflow:auto;min-height:0}
+
+/* ---- upload zip ---- */
+.upload{margin-top:8px;display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;font-size:12px;color:var(--ink-2)}
+.upload #upload-path{flex:1 1 260px;min-width:0;overflow-wrap:anywhere}
+.upload .parts{flex-basis:100%;margin-top:0}
+
+/* ---- split by connection ---- */
+.parts{margin-top:8px;font-size:12px;color:var(--ink-2)}
+.parts div{padding:2px 0;font-variant-numeric:tabular-nums}
+.parts .bad{color:var(--accent);font-weight:600}
+
+/* ---- AI marks ---- */
+#ai-panel .row>.grow,#ai-panel .val.grow{flex:1;min-width:0}
+#ai-panel .row+.row{margin-top:6px !important} /* tighter rows, so the tab fits the window */
+#ai-panel .mstatus{margin:0 0 6px}
+#ai-panel .val{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--ink-2);padding:6px 8px;box-shadow:var(--etched);background:var(--face-2)}
+#ai-panel .stats{margin-top:10px;font-size:12px;color:var(--ink-2)}
+#ai-panel .stats div{display:flex;justify-content:space-between;gap:10px;padding:2px 0}
+.aireview{margin-top:12px}
+.aireview h3{margin:0 0 8px;font:600 15px/1.1 var(--sans);color:var(--ink);display:flex;align-items:center;gap:10px}
+.aireview h3 small{font:500 11px/1 var(--mono);color:var(--ink-3)}
+.aireview h3 .grow{flex:1}
+.drafts{display:flex;flex-direction:column;gap:4px;max-height:420px;overflow:auto;padding:3px;background:var(--paper);box-shadow:var(--sunken)}
+.drafts .empty{padding:14px 10px;color:var(--ink-3);font-size:12px}
+.draftbar{display:flex;align-items:center;gap:10px;margin:0 0 6px}
+.draftbar .check-field{padding-bottom:0}
+.draftbar .grow{flex:1;font-size:12px;color:var(--ink-3)}
+.draft{display:grid;grid-template-columns:18px 160px minmax(0,1fr) auto;gap:10px;align-items:center;padding:4px;font-size:12px}
+.draft .pick{margin:0;width:15px;height:15px;accent-color:var(--accent)}
+.draft:nth-child(even){background:rgba(30,36,41,.045)}
+.draft img{width:160px;height:90px;object-fit:cover;box-shadow:var(--etched);background:var(--face-2);cursor:zoom-in}
+.draft img.gone{visibility:hidden}
+.draft img.big{position:fixed;inset:5%;width:90%;height:90%;object-fit:contain;z-index:70;background:var(--ink-deep);cursor:zoom-out}
+.draft .meta{display:flex;gap:10px;color:var(--ink-3);font-variant-numeric:tabular-nums;margin-bottom:4px}
+.draft .meta .unsure{color:var(--accent);font-weight:600}
+.draft input{width:100%;padding:4px 7px;font-size:12px}
+.draft .acts{display:flex;gap:4px}
+.draft[data-status="accepted"]{opacity:.65}
+.draft[data-status="accepted"] .meta::after{content:"added";color:var(--ok);font-weight:600}
+.draft[data-status="rejected"]{opacity:.4}
+.draft[data-status="rejected"] .meta::after{content:"dropped";font-weight:600}
 
 ::-webkit-scrollbar{width:12px;height:12px}
 ::-webkit-scrollbar-track{background:var(--face-2);box-shadow:var(--etched)}

@@ -26,5 +26,5 @@ func TestPrepareHooksRealGame(t *testing.T) {
 	if !strings.Contains(string(b), "const VAS = {") || strings.Contains(string(b), "0x1478F17E0") {
 		t.Fatalf("patched script looks wrong:\n%s", b[:600])
 	}
-	t.Logf("shim=%s patched=%s", setup.shim, setup.patched)
+	t.Logf("patched=%s", setup.patched)
 }

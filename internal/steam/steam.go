@@ -10,7 +10,6 @@ package steam
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 )
@@ -199,14 +198,6 @@ func requiredRuntimeAppID(protonWine string) string {
 		return id
 	}
 	return defaultRuntimeAppID
-}
-
-// GameProcess is the name of New World's process under Proton.
-const GameProcess = "NewWorld.exe"
-
-// GameRunning reports whether a NewWorld.exe process exists.
-func GameRunning() bool {
-	return exec.Command("pgrep", "-x", GameProcess).Run() == nil
 }
 
 func fileExists(p string) bool {

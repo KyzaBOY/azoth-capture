@@ -22,6 +22,11 @@
   };
 
   if (real) {
+    // Window errors go to the app's log (its terminal output), where they
+    // can be read without developer tools.
+    const logError = (msg) => window.runtime && window.runtime.LogError && window.runtime.LogError("window: " + msg);
+    window.addEventListener("error", (e) => logError(e.message + " (" + e.filename + ":" + e.lineno + ")"));
+    window.addEventListener("unhandledrejection", (e) => logError("unhandled: " + ((e.reason && e.reason.stack) || e.reason)));
     window.CaptureBridge = { real: true, api: window.go.main.App, bus, win, params };
     return;
   }

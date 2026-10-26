@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"azoth/capture/internal/steam"
 )
 
 const (
@@ -29,22 +31,26 @@ const (
 	pickPoll    = 200 * time.Millisecond
 
 	// Clip settings: 60 fps, scaled to fit 1920x1080 (4K and ultrawide
-	// monitors would otherwise make very large files), the recorder's "high"
-	// constant-quality preset, Matroska so a clip stays playable if the PC
-	// stops mid-recording.
+	// monitors would otherwise make very large files), Matroska so a clip
+	// stays playable if the PC stops mid-recording. The quality is the
+	// player's choice (Options.Quality), a constant-quality preset.
 	clipFPS       = "60"
 	clipMaxSize   = "1920x1080"
-	clipQuality   = "high"
 	clipContainer = "mkv"
-	noAudio       = "none"
 	portalTarget  = "portal" // the recorder's -w value for the desktop's window picker
 	// gameNameMatch is matched against program names in the recorder's
 	// application-audio list, lower case with spaces removed ("New World").
 	gameNameMatch = "newworld"
 )
 
-func isGameName(s string) bool {
-	return strings.Contains(strings.ToLower(strings.ReplaceAll(s, " ", "")), gameNameMatch)
+// isGameName reports whether a program name in the recorder's list is the
+// game: it has the game's usual name, or the name of the game file in
+// gameExe without ".exe" (the player may have renamed the file).
+func isGameName(s, gameExe string) bool {
+	plain := func(v string) string { return strings.ToLower(strings.ReplaceAll(v, " ", "")) }
+	name := plain(s)
+	file := plain(strings.TrimSuffix(strings.ToLower(steam.GameFileName(gameExe)), ".exe"))
+	return strings.Contains(name, gameNameMatch) || (file != "" && strings.Contains(name, file))
 }
 
 // recorder is how to run the GPU Screen Recorder command line: installed
@@ -75,8 +81,9 @@ func (r recorder) query(args ...string) (string, error) {
 }
 
 // Probe reports whether video can be recorded, whether the player can pick
-// one window, and which monitors exist.
-func Probe() Info {
+// one window, and which monitors exist. GPU Screen Recorder comes from the
+// distribution, so toolsDir is not used.
+func Probe(string) Info {
 	rec, ok := findRecorder()
 	if !ok {
 		return Info{Reason: InstallHint}
@@ -102,7 +109,7 @@ func Probe() Info {
 	if len(monitors) == 0 && !window {
 		return Info{Reason: "GPU Screen Recorder found nothing to record."}
 	}
-	return Info{Available: true, WindowCapture: window, Monitors: monitors}
+	return Info{Available: true, WindowCapture: window, NeedsPick: window, Sound: true, Monitors: monitors}
 }
 
 // gameAudioName returns the name of New World in the recorder's list of
@@ -114,13 +121,13 @@ func Probe() Info {
 // stream. The app never passes a device source (default_input,
 // default_output, device:...). The game's playback does include what the game
 // plays, other players' voice chat among it; "No sound" leaves all of it out.
-func gameAudioName(rec recorder) string {
+func gameAudioName(rec recorder, gameExe string) string {
 	out, err := rec.query("--list-application-audio")
 	if err != nil {
 		return ""
 	}
 	for _, name := range firstField(out) {
-		if isGameName(name) {
+		if isGameName(name, gameExe) {
 			return name
 		}
 	}
@@ -176,7 +183,7 @@ func Start(dir string, opt Options, logf func(string)) (*Recording, error) {
 		"-c", clipContainer,
 		"-f", clipFPS,
 		"-s", clipMaxSize,
-		"-q", clipQuality,
+		"-q", qualityOr(opt.Quality),
 		"-v", "no",
 	)
 	// Both options exist in current versions; older ones simply go without.
@@ -186,9 +193,18 @@ func Start(dir string, opt Options, logf func(string)) (*Recording, error) {
 	if strings.Contains(help, "-write-first-frame-ts") {
 		args = append(args, "-write-first-frame-ts", "yes")
 	}
+	// The chosen format, or the next one the GPU can encode.
+	info, _ := rec.query("--info")
+	chosen := codecOr(opt.Codec)
+	if codec := pickCodec(info, chosen); codec != "" {
+		args = append(args, "-k", codec)
+		if chosen != CodecAuto && codec != chosen {
+			logf("Video: this GPU cannot record " + chosen + "; recording " + codec + " instead.")
+		}
+	}
 	audio := noAudio
 	if opt.GameAudio {
-		if name := gameAudioName(rec); name != "" {
+		if name := gameAudioName(rec, opt.GameExe); name != "" {
 			audio = "app:" + name
 			args = append(args, "-a", audio)
 		} else {
@@ -263,6 +279,9 @@ func (r *Recording) Stop() (Clip, error) {
 	}
 	return r.clip, nil
 }
+
+// Install cannot install GPU Screen Recorder: it comes from the distribution.
+func Install(string, func(string)) error { return errors.New(InstallHint) }
 
 // PickWindow opens the desktop's "choose what to share" dialog so the player
 // can pick the game window once. The choice is remembered in tokenPath, so

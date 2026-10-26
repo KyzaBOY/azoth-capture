@@ -34,6 +34,7 @@ type App struct {
 	hkErr string
 
 	vid videoState
+	ai  aiState
 }
 
 func NewApp(set config.Settings) *App {
@@ -118,17 +119,21 @@ type Boot struct {
 	AppDir      string            `json:"app_dir"`
 	Platform    string            `json:"platform"`
 	Video       VideoStatus       `json:"video"`
+	AI          AIStatus          `json:"ai"`
 }
 
 func (a *App) Boot() Boot {
 	vs := a.VideoState() // takes the locks itself, so before a.mu below
+	ais := a.AIState()
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	set := a.set
+	set.AI.APIKey = "" // the window never gets the key; AIStatus says whether one is saved
 	return Boot{
-		Version: journal.Version, Settings: a.set, Activities: journal.Activities,
+		Version: journal.Version, Settings: set, Activities: journal.Activities,
 		Draft: a.j.CheckDraft(), State: a.j.State(), HotkeyError: a.hkErr,
 		EnvReady: a.cap.IsEnvInstalled(), AppDir: a.appDir(), Platform: platformName,
-		Video: vs,
+		Video: vs, AI: ais,
 	}
 }
 
@@ -164,6 +169,7 @@ func (a *App) StartSession(exePath, name, activity string, timeout int, onePerEP
 		return journal.State{}, err
 	}
 	a.resetVideo()
+	go a.autoStartVideo()
 
 	return st, nil
 }
@@ -211,13 +217,37 @@ func (a *App) StopSession() (StopResult, error) {
 			}
 		}
 
-		stepsSrc := filepath.Join(res.ExportDir, "steps.json")
-		_ = copyFile(stepsSrc, filepath.Join(sendDir, "steps.json"))
+		a.refreshUpload(res.ExportDir)
 
 		res.SendDir = sendDir
+		if clips > 0 {
+			a.startAIAfterStop(res.ExportDir)
+		}
 	}
 
 	return res, nil
+}
+
+// UploadStatus is the upload zip, or why it could not be made. The window
+// hears it as the "upload" event whenever steps.json changes after Stop.
+type UploadStatus struct {
+	journal.UploadZip
+	Error string `json:"error"`
+}
+
+// refreshUpload puts the exported steps.json into the send folder and makes
+// the upload zip again from the send folder.
+func (a *App) refreshUpload(exportDir string) UploadStatus {
+	var st UploadStatus
+	err := copyFile(filepath.Join(exportDir, "steps.json"), filepath.Join(exportDir, "send", "steps.json"))
+	if err == nil {
+		st.UploadZip, err = journal.MakeUploadZip(exportDir)
+	}
+	if err != nil {
+		st.Error = err.Error()
+	}
+	a.emit("upload", st)
+	return st
 }
 
 // ---- journal (still exposed for mark/edit/steps) ----------------------------
@@ -245,7 +275,7 @@ func (a *App) MarkChecklist(text string, idx int) (journal.State, error) {
 func (a *App) EditStep(id int, text string) (journal.State, error) { return a.j.EditStep(id, text) }
 func (a *App) DeleteStep(id int) (journal.State, error)            { return a.j.DeleteStep(id) }
 func (a *App) SetTargets(ids []int) journal.State                  { return a.j.SetTargets(ids) }
-func (a *App) NewSession() journal.State                           { return a.j.Reset() }
+func (a *App) NewSession() journal.State                           { a.resetAI(); return a.j.Reset() }
 func (a *App) RecoverDraft() (journal.State, error)                { return a.j.Recover() }
 func (a *App) DiscardDraft()                                       { a.j.DiscardDraft() }
 
@@ -259,7 +289,26 @@ func (a *App) Export() (ExportInfo, error) {
 	if err != nil {
 		return ExportInfo{}, err
 	}
-	return ExportInfo{Dir: dir, State: a.j.State()}, nil
+	st := a.j.State()
+	if st.Phase == journal.PhaseStopped {
+		a.refreshUpload(dir)
+	}
+	return ExportInfo{Dir: dir, State: st}, nil
+}
+
+// uploadPageURL is where the player uploads the zip.
+const uploadPageURL = "https://projectazoth.com/upload"
+
+// OpenUploadPage opens the Project Azoth upload page in the web browser.
+func (a *App) OpenUploadPage() { runtime.BrowserOpenURL(a.ctx, uploadPageURL) }
+
+// OpenUploadZip shows the upload zip in the file manager.
+func (a *App) OpenUploadZip() error {
+	dir := a.j.State().ExportDir
+	if dir == "" {
+		return fmt.Errorf("no session exported yet")
+	}
+	return openPath(filepath.Dir(filepath.Clean(dir)))
 }
 
 func (a *App) OpenFolder() error {
@@ -293,6 +342,29 @@ func (a *App) OpenSendDir() error {
 		return fmt.Errorf("send folder not found — stop a session first")
 	}
 	return openPath(sendDir)
+}
+
+// SplitSession writes one upload zip per game connection of the stopped
+// session into its "parts" folder.
+func (a *App) SplitSession() (journal.SplitResult, error) {
+	st := a.j.State()
+	if st.Phase != journal.PhaseStopped || st.ExportDir == "" {
+		return journal.SplitResult{}, fmt.Errorf("stop the session first")
+	}
+	return journal.SplitByConnection(st.ExportDir)
+}
+
+// OpenPartsDir opens the folder SplitSession wrote.
+func (a *App) OpenPartsDir() error {
+	dir := a.j.State().ExportDir
+	if dir == "" {
+		return fmt.Errorf("no session exported yet")
+	}
+	parts := filepath.Join(dir, journal.PartsDirName)
+	if _, err := os.Stat(parts); err != nil {
+		return fmt.Errorf("no parts yet; press Split by connection first")
+	}
+	return openPath(parts)
 }
 
 func copyFile(src, dst string) error {

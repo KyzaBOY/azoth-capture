@@ -20,6 +20,30 @@ const ledgerStandIn = `(function () {
 })();
 `
 
+// A stand-in with the same shape as upstream's _common.js head.
+const commonStandIn = `const NW = {
+    BASE_IDA: ptr("0x140000000"),
+    MODULE_NAME: "NewWorld.exe",
+    module: null,
+};
+`
+
+func TestPatchCommonJS(t *testing.T) {
+	got, err := patchCommonJS(commonStandIn, `nw "client".exe`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, `MODULE_NAME: "nw \"client\".exe",`) || strings.Contains(got, `"NewWorld.exe"`) {
+		t.Errorf("patched script:\n%s", got)
+	}
+	if !strings.Contains(got, `BASE_IDA: ptr("0x140000000")`) {
+		t.Error("the patch changed more than the name")
+	}
+	if _, err := patchCommonJS("const NW = {};", "x.exe"); err == nil {
+		t.Error("a script without MODULE_NAME was patched")
+	}
+}
+
 func TestPatchLedgerJS(t *testing.T) {
 	a := hooks.Addrs{SSLRead: 0xAAA1, SSLWrite: 0xBBB2, Keylog: 0xCCC3}
 	got, err := patchLedgerJS(ledgerStandIn, a)

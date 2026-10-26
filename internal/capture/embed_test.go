@@ -30,3 +30,17 @@ func TestEmbeddedInstallerKeepsThePin(t *testing.T) {
 		}
 	}
 }
+
+// The run shim points the upstream runner at both patched scripts, and refuses
+// to run when upstream renamed either setting.
+func TestEmbeddedRunShimPatchesBothScripts(t *testing.T) {
+	for _, want := range []string{
+		"_runner.COMMON_JS = common",
+		"_runner.DTLS_LEDGER_JS = patched",
+		`for name in ("COMMON_JS", "DTLS_LEDGER_JS"):`,
+	} {
+		if !bytes.Contains(runShim, []byte(want)) {
+			t.Errorf("run shim is missing %q", want)
+		}
+	}
+}

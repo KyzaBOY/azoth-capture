@@ -29,6 +29,7 @@ const (
 	ViaButton    = "button"
 	ViaHotkey    = "hotkey"
 	ViaChecklist = "checklist"
+	ViaAI        = "ai" // drafted by AI marks from the video, accepted by the player
 )
 
 // Session phases.
@@ -190,6 +191,26 @@ func (j *Journal) Mark(at time.Time, via, text string, target *int) (Step, error
 		j.mu.Unlock()
 		return Step{}, ErrNotRunning
 	}
+	st := j.addStepLocked(at, via, text, target)
+	j.commit()
+	return st, nil
+}
+
+// AddReviewedStep records a step the player accepted from AI marks, at the
+// moment it happened in the video. Unlike Mark it also works after the
+// session stopped, because the review happens then.
+func (j *Journal) AddReviewedStep(at time.Time, text string) (Step, error) {
+	j.mu.Lock()
+	if j.s.Phase == PhaseIdle {
+		j.mu.Unlock()
+		return Step{}, ErrNotRunning
+	}
+	st := j.addStepLocked(at, ViaAI, text, nil)
+	j.commit()
+	return st, nil
+}
+
+func (j *Journal) addStepLocked(at time.Time, via, text string, target *int) Step {
 	text = cleanText(text)
 	if text == "" {
 		text = fmt.Sprintf("Step %d", len(j.s.Steps)+1)
@@ -202,8 +223,7 @@ func (j *Journal) Mark(at time.Time, via, text string, target *int) (Step, error
 	j.s.NextID++
 	j.s.Steps = append(j.s.Steps, st)
 	sort.SliceStable(j.s.Steps, func(a, b int) bool { return j.s.Steps[a].TMs < j.s.Steps[b].TMs })
-	j.commit()
-	return st, nil
+	return st
 }
 
 // EditStep changes the text of a step (its time never changes).
